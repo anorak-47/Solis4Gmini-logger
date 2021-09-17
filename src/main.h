@@ -28,11 +28,10 @@
 
 #include "config.h"
 #include "modbus.h"
+#include "inverter.h"
 #include "mqtt.h"
 #include "myTicker.h"
-#include "influx.h"
 #include "time.h"
-#include "pvoutput.h"
 #include "led.h"
 #include "ds18b20.h"
 

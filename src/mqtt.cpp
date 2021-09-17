@@ -5,9 +5,11 @@ WiFiClient net;
 PubSubClient client(net);
 #endif
 
-void reconnect();
-void connect();
-void mqtt_callback(char *topic, byte *payload, unsigned int length);
+// TODO: fix this stuff
+
+// void reconnect();
+// void connect();
+// void mqtt_callback(char *topic, byte *payload, unsigned int length);
 
 myMqtt::myMqtt()
 {
@@ -18,10 +20,8 @@ Starts MQTT
 */
 void myMqtt::begin()
 {
-#ifdef MQTT
-    Serial.println("Connecting to Mqtt...");
+    Serial.println(F("Connecting to Mqtt..."));
     connect();
-#endif
 }
 
 /*
@@ -29,50 +29,24 @@ Loops MQTT
 */
 void myMqtt::loop()
 {
-#ifdef MQTT
     if (!client.connected())
     {
         reconnect();
     }
     client.loop();
-#endif
 }
 
 /*
 Send values over MQTT
-@param power Actual power (float)
-@param energyToday Energy today (float)
-@param AC_U AC voltage (float)
-@param AC_I AC current (float)
-@param AC_F AC frequency (float)
-@param DC_U DC voltage (float)
-@param DC_I DC current (float)
-@param temperature temperature (float)
 */
-void myMqtt::sendValues(float power, float energyToday, float AC_U, float AC_I, float AC_F, float DC_U, float DC_I, float temperature)
+void myMqtt::sendPayload(String const &path, String const &payload)
 {
-#ifdef MQTT
-    char bufferSend[10];
+    client.publish(path.c_str(), payload.c_str());
+}
 
-    dtostrf(power, 0, 0, bufferSend);
-    client.publish(mqtt_power_topic, bufferSend);
-    dtostrf(energyToday, 0, 1, bufferSend);
-    client.publish(mqtt_eToday_topic, bufferSend);
-    dtostrf(temperature, 0, 1, bufferSend);
-    client.publish(mqtt_temp_topic, bufferSend);
-
-    dtostrf(AC_U, 0, 1, bufferSend);
-    client.publish(mqtt_acu_topic, bufferSend);
-    dtostrf(AC_I, 0, 1, bufferSend);
-    client.publish(mqtt_aci_topic, bufferSend);
-    dtostrf(AC_F, 0, 2, bufferSend);
-    client.publish(mqtt_acf_topic, bufferSend);
-
-    dtostrf(DC_U, 0, 1, bufferSend);
-    client.publish(mqtt_dcu_topic, bufferSend);
-    dtostrf(DC_I, 0, 1, bufferSend);
-    client.publish(mqtt_dci_topic, bufferSend);
-#endif
+void myMqtt::setModbusSlave(ModbusSlaveDevice &device)
+{
+    modbusSlave = &device;
 }
 
 /*
@@ -80,54 +54,70 @@ Sends status
 */
 void myMqtt::sendStatus()
 {
-#ifdef MQTT
     char bufferSend[10];
-
     dtostrf(WiFi.RSSI(), 0, 0, bufferSend);
     client.publish(mqtt_status_rssi_topic, bufferSend);
-#endif
 }
 
-#ifdef otherNode
-void myMqtt::sendOtherNode(String str)
+void myMqtt::mqtt_callback(char *topic, byte *payload, unsigned int length)
 {
-#ifdef MQTT
-    client.publish(mqttOtherNodeHoldingTopic, (char *)str.c_str());
-#endif
-}
-#endif
+    String sTopic{topic};
 
-void mqtt_callback(char *topic, byte *payload, unsigned int length)
-{
-#ifdef MQTT
-    String sTopic = String(topic);
-    // Workaround to get int from payload
     payload[length] = '\0';
-    //uint32_t value = String((char * ) payload).toInt();
+    String payloadStr(reinterpret_cast<char *>(payload));
 
-    if (sTopic == mqtt_info_ping_topic)
-    {
-        client.publish(mqtt_info_pong_topic, "pong");
-        char bufferSend[10];
-        dtostrf(WiFi.RSSI(), 0, 0, bufferSend);
-        client.publish(mqtt_status_rssi_topic, bufferSend);
-    }
-#endif
+    if (!modbusSlave)
+        return;
+
+    if (!sTopic.startsWith(F(mqtt_modbus_set_holdingregister)))
+        return;
+
+    auto registers{modbusSlave->getRegisterValues()};
+
+    ModbusRegisterDescription regDesc;
+    String topicbase{F(mqtt_modbus_set_holdingregister)};
+
+    std::for_each(std::begin(registers), std::end(registers),
+                  [&topicbase, &sTopic, &regDesc, &payloadStr, this](auto const &reg)
+                  {
+                      memcpy_P(&regDesc, reg.second.reg, sizeof(ModbusRegisterDescription));
+                      auto mqttTopic{String{regDesc.mqttTopic}};
+                      if (topicbase + mqttTopic == sTopic)
+                      {
+                          auto value{strtol(payloadStr.c_str(), nullptr, 10)};
+                          auto result{modbusSlave->writeHoldingRegister(regDesc, value)};
+
+                          auto msg{mqttTopic};
+                          msg += F(":");
+                          msg += String(reg.second.value);
+                          msg += F(":");
+                          msg += String(value);
+                          msg += F(":");
+                          msg += String(result);
+
+                          auto path{topicbase};
+                          path += F("last");
+
+                          client.publish(path.c_str(), msg.c_str());
+                      }
+                  });
 }
 
-void reconnect()
+void myMqtt::reconnect()
 {
-#ifdef MQTT
     while (!client.connected())
     {
-        Serial.println("Mqtt reconnect");
-        String clientId = "esp8266-";
+        Serial.println(F("Mqtt reconnect"));
+        String clientId(F("esp8266-"));
         clientId += String(WiFi.macAddress());
 
 #ifdef MQTTUSER
         if (client.connect(clientId.c_str(), MQTTUSER, MQTTPASS))
         {
-            client.subscribe(mqtt_base_topic);
+            String path{mqtt_modbus_set_holdingregister};
+            path += "#";
+
+            client.subscribe(path.c_str());
         }
         else
         {
@@ -136,7 +126,7 @@ void reconnect()
 #else
         if (client.connect(clientId.c_str()))
         {
-            client.subscribe(mqtt_base_topic);
+            client.subscribe(mqtt_base_topic_subscribe);
         }
         else
         {
@@ -144,29 +134,31 @@ void reconnect()
         }
 #endif
     }
-#endif
 }
 
-//Connect to WLAN subroutine
-void connect()
+// Connect to WLAN subroutine
+void myMqtt::connect()
 {
-#ifdef MQTT
-    Serial.print("IP number assigned by DHCP is ");
+    Serial.print(F("IP assigned by DHCP is "));
     Serial.println(WiFi.localIP());
 
-    //connecting Mqtt
-    Serial.println("Connecting to mqtt");
+    // connecting Mqtt
+    Serial.println(F("Connecting to mqtt"));
     client.setServer(mqttBrokerIP, mqttBrokerPort);
-    client.setCallback(mqtt_callback);
+    client.setCallback([this](char *topic, byte *payload, unsigned int length) { mqtt_callback(topic, payload, length); });
 
 #ifdef MQTTUSER
     while (!client.connected())
     {
-        String clientId = "esp8266-";
+        String clientId(F("esp8266-"));
         clientId += String(WiFi.macAddress());
+
         if (client.connect(clientId.c_str(), MQTTUSER, MQTTPASS))
         {
-            client.subscribe(mqtt_base_topic);
+            String path{mqtt_modbus_set_holdingregister};
+            path += "#";
+
+            client.subscribe(path.c_str());
         }
         else
         {
@@ -176,17 +168,16 @@ void connect()
 #else
     while (!client.connected())
     {
-        String clientId = "esp8266-";
+        String clientId(F("esp8266-"));
         clientId += String(WiFi.macAddress());
         if (client.connect(clientId.c_str()))
         {
-            client.subscribe(mqtt_base_topic);
+            client.subscribe(mqtt_base_topic_subscribe);
         }
         else
         {
             delay(2000);
         }
     }
-#endif
 #endif
 }

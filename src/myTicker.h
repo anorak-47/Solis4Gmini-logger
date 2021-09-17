@@ -1,6 +1,7 @@
 #pragma once
-
 #include "main.h"
+
+class Ticker;
 
 class myTicker
 {
@@ -8,20 +9,21 @@ public:
     myTicker();
     void begin();
 
-    bool getMqttStatusFlag();
-    void setMqttStatusFlagToFalse();
+    bool isTimeoutStatus();
+    void resetTimeoutStatus();
 
-    bool getReadFlag();
-    void setReadFlagToFalse();
+    bool isTimeout10S();
+    void resetTimeout10S();
 
-    bool getinfluxDBFlag();
-    void setInfluxDBFlagToFalse();
+    bool isTimeout30S();
+    void resetTimeout30S();
 
-    bool getPVoutputFlag();
-    void setPVoutputFlagToFalse();
+private:
+    void attach(uint16_t seconds, std::function<void()> &&func);
 
-#ifdef otherNode
-    bool getOtherDeviceFlag();
-    void setOtherDeviceFlagToFalse();
-#endif
+    bool timeout10S{};
+    bool timeout30S{};
+    bool timeoutStatus{};
+
+    std::vector<std::unique_ptr<Ticker>> tickers;
 };

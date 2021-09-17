@@ -3,7 +3,6 @@
 
 #include "main.h"
 
-
 class myMqtt
 {
 public:
@@ -12,12 +11,16 @@ public:
     void begin();
     void loop();
     void sendStatus();
-    void sendValues(float power, float energyToday, float AC_U, float AC_I, float AC_F, float DC_U, float DC_I, float temperature);
+    void sendPayload(String const &path, String const& payload);
 
-    #ifdef otherNode
-    void sendOtherNode(String str);
-    #endif
+    void setModbusSlave(ModbusSlaveDevice &device);
 
+private:
+    void reconnect();
+    void connect();
+    void mqtt_callback(char *topic, byte *payload, unsigned int length);
+
+    ModbusSlaveDevice *modbusSlave{};
 };
 
 #endif

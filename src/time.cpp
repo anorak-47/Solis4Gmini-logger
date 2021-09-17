@@ -23,7 +23,6 @@ void timeControl::begin()
 
 void timeControl::loop()
 {
-    Serial.println("Starting NTP client");
     timeClient.update();
 }
 

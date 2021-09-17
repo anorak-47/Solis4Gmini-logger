@@ -1,132 +1,59 @@
 #include "myTicker.h"
-
 #include <Ticker.h>
+
+Ticker mqttStatusTicker;
+Ticker readTicker;
 
 myTicker::myTicker()
 {
 }
 
-// ####################################### MQTT #######################################################
-Ticker mqttStatusTicker;
-bool _mqttStatusFlag = false;
-
-void mqttStatusFlagChange()
-{
-    _mqttStatusFlag = true;
-}
-
-bool myTicker::getMqttStatusFlag()
+bool myTicker::isTimeoutStatus()
 {
 
-    return _mqttStatusFlag;
+    return timeoutStatus;
 }
 
-void myTicker::setMqttStatusFlagToFalse()
+void myTicker::resetTimeoutStatus()
 {
-    _mqttStatusFlag = false;
+    timeoutStatus = false;
 }
 
-// ####################################### READ INVERTER #######################################################
-Ticker readTicker;
-bool _readFlag = false;
-
-void readFlagChange()
-{
-    Serial.println("DEBUG 2 ");
-    Serial.println(_readFlag);
-    _readFlag = true;
-}
-
-bool myTicker::getReadFlag()
+bool myTicker::isTimeout10S()
 {
 
-    return _readFlag;
+    return timeout10S;
 }
 
-void myTicker::setReadFlagToFalse()
+void myTicker::resetTimeout10S()
 {
-    _readFlag = false;
+	timeout10S = false;
 }
 
-// ####################################### WRITE INFLUXDB #######################################################
-Ticker influxDBTicker;
-bool _influxDBFlag = false;
-
-void influxDBFlagChange()
-{
-    Serial.println("DEBUG 3 ");
-    Serial.println(_influxDBFlag);
-    _influxDBFlag = true;
-}
-
-bool myTicker::getinfluxDBFlag()
+bool myTicker::isTimeout30S()
 {
 
-    return _influxDBFlag;
+    return timeout30S;
 }
 
-void myTicker::setInfluxDBFlagToFalse()
+void myTicker::resetTimeout30S()
 {
-    _influxDBFlag = false;
+	timeout30S = false;
 }
 
-// ####################################### PVOUTPUT #######################################################
-Ticker pvoutputTicker;
-bool _pvoutputFlag = false;
-
-void pvoutputFlagChange()
+void myTicker::attach(uint16_t seconds, std::function<void()> &&func)
 {
-    Serial.println("DEBUG 4 ");
-    Serial.println(_pvoutputFlag);
-    _pvoutputFlag = true;
+    auto ticker{std::make_unique<Ticker>()};
+    ticker->attach(seconds, func);
+    tickers.emplace_back(std::move(ticker));
 }
-
-bool myTicker::getPVoutputFlag()
-{
-
-    return _pvoutputFlag;
-}
-
-void myTicker::setPVoutputFlagToFalse()
-{
-    _pvoutputFlag = false;
-}
-
-// ####################################### Other devide #######################################################
-#ifdef otherNode
-Ticker otherDeviceTicker;
-bool _otherDeviceFlag = false;
-
-void otherDeviceFlagChange()
-{
-    Serial.println("DEBUG 4 ");
-    Serial.println(_otherDeviceFlag);
-    _otherDeviceFlag = true;
-}
-
-bool myTicker::getOtherDeviceFlag()
-{
-
-    return _otherDeviceFlag;
-}
-
-void myTicker::setOtherDeviceFlagToFalse()
-{
-    _otherDeviceFlag = false;
-}
-#endif
 
 /*
 Starts ticker
 */
 void myTicker::begin()
 {
-    mqttStatusTicker.attach(mqttStatusIntveral, mqttStatusFlagChange);
-    readTicker.attach(readInterval, readFlagChange);
-    influxDBTicker.attach(influxdbInterval, influxDBFlagChange);
-    pvoutputTicker.attach(PVOUTPUT_sendInterval, pvoutputFlagChange);
-
-#ifdef otherNode
-    pvoutputTicker.attach(oInterval, otherDeviceFlagChange);
-#endif
+	attach(10, [this](){timeout10S = true;});
+	attach(30, [this](){timeout30S = true;});
+	attach(mqttStatusIntveral, [this](){timeoutStatus = true;});
 }

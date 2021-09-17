@@ -8,8 +8,8 @@ public:
     void begin();
 
     void blueToggle();
-    void blueOn();
-    void blueOff();
+    void greenOn();
+    void greenOff();
 
     void yellowToggle();
     void yellowOn();

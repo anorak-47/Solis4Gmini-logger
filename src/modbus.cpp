@@ -1,306 +1,369 @@
 #include "modbus.h"
+#include "config.h"
+#include <Arduino.h>
+#include <ESPDash.h>
 
-// SW-Serial object
-SoftwareSerial rs485(rs485_RX, rs485_TX, false); // RX, TX, Invert signal
-
-// instantiate ModbusMaster object
-ModbusMaster node;
-
-#ifdef otherNode
-
-ModbusMaster node2;
-int node2Output[oNumReg];
-bool node2Reachable = false;
-#endif
-
-void postTransmission();
-void preTransmission();
-
-float _power = 0.00;
-float _energyToday = 0.00;
-float _temperature = 0.00;
-
-float _dc_u = 0.00;
-float _dc_i = 0.00;
-
-float _ac_u = 0.00;
-float _ac_i = 0.00;
-float _ac_f = 0.00;
-
-bool _softRun = true;
-
-bool reachable = false;
-bool reachable_flag__lst = true;
-
-inverter::inverter()
+namespace
 {
+constexpr auto maxModbusReadRetries{3};
 }
 
-otherModbusDevice::otherModbusDevice()
+void dumpCard(CardDescription const &card)
 {
+    Serial.println(F("---- card"));
+    Serial.println(card.name);
+    Serial.println(card.unit);
+}
+
+void dumpRegisters(DeviceRegisterSet const *regSet)
+{
+    Serial.println(F("modbus registers"));
+
+    DeviceRegisterSet irs;
+    ModbusRegisterDescription reg;
+
+    int irsPos{};
+    int regPos{};
+
+    memcpy_P(&irs, &regSet[irsPos++], sizeof(DeviceRegisterSet));
+
+    while (irs.registers)
+    {
+        Serial.print(F("---- register set "));
+        Serial.println(irsPos);
+        Serial.print(F("start address: "));
+        Serial.println(irs.startAddress);
+        Serial.print(F("registers: "));
+        Serial.println(irs.registerCount);
+        Serial.println(F("----"));
+
+        regPos = 0;
+        memcpy_P(&reg, &irs.registers[regPos++], sizeof(ModbusRegisterDescription));
+
+        while (reg.address != 0)
+        {
+            Serial.print(F("-- register "));
+            Serial.println(regPos);
+            Serial.print(F("address: "));
+            Serial.println(reg.address);
+            Serial.print(F("topic: "));
+            Serial.println(reg.mqttTopic);
+            dumpCard(reg.card);
+
+            memcpy_P(&reg, &irs.registers[regPos++], sizeof(ModbusRegisterDescription));
+        }
+
+        memcpy_P(&irs, &regSet[irsPos++], sizeof(DeviceRegisterSet));
+    }
+}
+
+void ModbusSlaveDevice::initRegisters(DeviceRegisterSet const *regSet)
+{
+    DeviceRegisterSet irs;
+    ModbusRegisterDescription reg;
+
+    int irsPos{};
+    int regPos{};
+
+    memcpy_P(&irs, &regSet[irsPos++], sizeof(DeviceRegisterSet));
+
+    while (irs.registers)
+    {
+        regPos = 0;
+        memcpy_P(&reg, &irs.registers[regPos], sizeof(ModbusRegisterDescription));
+
+        while (reg.address != 0)
+        {
+            registerValues.emplace(reg.address, ModbusRegisterValue{0.0, false, &irs.registers[regPos]});
+
+            regPos++;
+            memcpy_P(&reg, &irs.registers[regPos], sizeof(ModbusRegisterDescription));
+        }
+
+        memcpy_P(&irs, &regSet[irsPos++], sizeof(DeviceRegisterSet));
+    }
+}
+
+void ModbusSlaveDevice::resetRegisters(DeviceRegisterSet const *regSet)
+{
+    DeviceRegisterSet irs;
+    ModbusRegisterDescription reg;
+
+    int irsPos{};
+    int regPos{};
+
+    memcpy_P(&irs, &regSet[irsPos++], sizeof(DeviceRegisterSet));
+
+    while (irs.registers)
+    {
+        regPos = 0;
+        memcpy_P(&reg, &irs.registers[regPos], sizeof(ModbusRegisterDescription));
+
+        while (reg.address != 0)
+        {
+            registerValues[reg.address].value = 0.0;
+            registerValues[reg.address].valid = false;
+            memcpy_P(&reg, &irs.registers[regPos++], sizeof(ModbusRegisterDescription));
+        }
+
+        memcpy_P(&irs, &regSet[irsPos++], sizeof(DeviceRegisterSet));
+    }
+}
+
+void ModbusSlaveDevice::invalidateRegisters(DeviceRegisterSet const *regSet)
+{
+    DeviceRegisterSet irs;
+    ModbusRegisterDescription reg;
+
+    int irsPos{};
+    int regPos{};
+
+    memcpy_P(&irs, &regSet[irsPos++], sizeof(DeviceRegisterSet));
+
+    while (irs.registers)
+    {
+        regPos = 0;
+        memcpy_P(&reg, &irs.registers[regPos], sizeof(ModbusRegisterDescription));
+
+        while (reg.address != 0)
+        {
+            registerValues[reg.address].valid = false;
+            memcpy_P(&reg, &irs.registers[regPos++], sizeof(ModbusRegisterDescription));
+        }
+
+        memcpy_P(&irs, &regSet[irsPos++], sizeof(DeviceRegisterSet));
+    }
+}
+
+double regToValue(ModbusMaster *node, uint16_t offset, ModbusRegisterValueType type, double scale)
+{
+    double value{};
+
+    switch (type)
+    {
+    case ModbusRegisterValueType::U16:
+        value = node->getResponseBuffer(offset);
+        break;
+    case ModbusRegisterValueType::S16:
+        value = static_cast<int16_t>(node->getResponseBuffer(offset));
+        break;
+    case ModbusRegisterValueType::U32:
+        value = (static_cast<uint32_t>(node->getResponseBuffer(offset)) << 16) + static_cast<uint32_t>(node->getResponseBuffer(offset + 1));
+        break;
+    case ModbusRegisterValueType::S32:
+        value = static_cast<int32_t>((static_cast<uint32_t>(node->getResponseBuffer(offset)) << 16) +
+                                     static_cast<uint32_t>((node->getResponseBuffer(offset + 1))));
+        break;
+    case ModbusRegisterValueType::DI:
+        auto buf{node->getResponseBuffer(0)};
+
+        if (buf & (1 << offset))
+            value = 1.0;
+
+        break;
+    }
+
+    return value * scale;
+}
+
+/* Modbus function 0x06 Write Single Register. */
+uint8_t ModbusSlaveDevice::writeHoldingRegister(ModbusRegisterDescription const &reg, uint16_t value)
+{
+	auto u16WriteAddress{reg.address - getAddressOffset()};
+	return rs485if->master()->writeSingleRegister(u16WriteAddress, value);
+}
+
+uint8_t ModbusSlaveDevice::readRegisters(uint16_t startAddress, uint8_t u16ReadQty)
+{
+    digitalWrite(2, LOW);
+    auto u16ReadAddress{startAddress - getAddressOffset()};
+    uint8_t result{};
+
+    switch (getRegisterType())
+    {
+    case RegisterType::Coils:
+        result = rs485if->master()->readCoils(u16ReadAddress, u16ReadQty);
+        break;
+    case RegisterType::DiscreteInputs:
+        result = rs485if->master()->readDiscreteInputs(u16ReadAddress, u16ReadQty);
+        break;
+    case RegisterType::HoldingRegisters:
+        result = rs485if->master()->readHoldingRegisters(u16ReadAddress, u16ReadQty);
+        break;
+    case RegisterType::InputRegisters:
+        result = rs485if->master()->readInputRegisters(u16ReadAddress, u16ReadQty);
+        break;
+    }
+
+    digitalWrite(2, HIGH);
+
+    return result;
+}
+
+bool ModbusSlaveDevice::readRegisterSet(DeviceRegisterSet const *regSet)
+{
+    DeviceRegisterSet irs;
+    ModbusRegisterDescription reg;
+    bool success{true};
+    int irsPos{};
+    int regPos{};
+
+    memcpy_P(&irs, &regSet[irsPos++], sizeof(DeviceRegisterSet));
+
+    while (irs.registers && success)
+    {
+        int retries = maxModbusReadRetries;
+        bool timeout{true};
+
+        while (retries > 0 && timeout)
+        {
+            result = readRegisters(irs.startAddress, irs.registerCount);
+            success = result == ModbusMaster::ku8MBSuccess;
+            timeout = result == ModbusMaster::ku8MBResponseTimedOut;
+            --retries;
+            delay(readDelay / 2);
+        }
+
+        retriesNeeded = maxModbusReadRetries - retries;
+
+        regPos = 0;
+        memcpy_P(&reg, &irs.registers[regPos++], sizeof(ModbusRegisterDescription));
+
+        while (reg.address != 0)
+        {
+            if (success)
+            {
+                auto offset{reg.address - irs.startAddress};
+                registerValues[reg.address].value = regToValue(rs485if->master(), offset, reg.type, reg.scale);
+                registerValues[reg.address].valid = true;
+            }
+
+            memcpy_P(&reg, &irs.registers[regPos++], sizeof(ModbusRegisterDescription));
+        }
+
+        memcpy_P(&irs, &regSet[irsPos++], sizeof(DeviceRegisterSet));
+        delay(readDelay);
+    }
+
+    return success;
+}
+
+void ModbusSlaveDevice::dumpRegisterValues() const
+{
+    Serial.print(F("register count: "));
+    Serial.println(registerValues.size());
+
+    ModbusRegisterDescription regDesc;
+    std::for_each(std::begin(registerValues), std::end(registerValues),
+                  [&regDesc](auto const &reg)
+                  {
+                      memcpy_P(&regDesc, reg.second.reg, sizeof(ModbusRegisterDescription));
+                      Serial.print(F("register "));
+                      Serial.print(regDesc.address);
+                      Serial.print(F(", valid: "));
+                      Serial.print(reg.second.valid);
+                      Serial.print(F(", value: "));
+                      Serial.println(reg.second.value);
+                  });
+}
+
+RegisterValues const &ModbusSlaveDevice::getRegisterValues() const
+{
+    return registerValues;
 }
 
 /*
 Requests data from the inverter
 */
-bool inverter::request()
+bool ModbusSlaveDevice::request()
 {
+    // dumpRegisters(deviceRegisters);
+    reachable = readRegisterSet(deviceRegisters);
+    // dumpRegisterValues();
 
-    Serial.println("------------------------------------------");
-    uint8_t result;
-    reachable = true;
-    digitalWrite(2, LOW);
-    result = node.readInputRegisters(3005, 1);
-    if (result == node.ku8MBSuccess)
+    if (!reachable)
     {
-        //Serial.print("P: ");
+        // resetRegisters(deviceRegisters);
+        invalidateRegisters(deviceRegisters);
+        Serial.println(F("Inverter not reachable"));
+    }
 
-        if (_ac_i != 0.0)
-        { // Detect softrun
-            _power = node.getResponseBuffer(0x00);
-            _softRun = false;
-        }
-        else
-        {
-            _power = 0.0;
-            _softRun = true;
-        }
-    }
-    else
-    {
-        Serial.println("+ GET POWER FAILED");
-        _power = -1.0;
-        reachable = false;
-        Serial.println("Inverter not reachable");
-        //return false;
-    }
-    delay(readDelay);
-    digitalWrite(2, HIGH);
-
-    result = node.readInputRegisters(3014, 2);
-    if (result == node.ku8MBSuccess)
-    {
-        _energyToday = node.getResponseBuffer(0x00) / 10.0;
-    }
-    else
-    {
-        Serial.println("+ GET ENERGY FAILED");
-        reachable = false;
-    }
-    delay(readDelay);
-    digitalWrite(2, LOW);
-
-    result = node.readInputRegisters(3021, 4);
-    if (result == node.ku8MBSuccess)
-    {
-        _dc_u = node.getResponseBuffer(0x00) / 10.0;
-        _dc_i = node.getResponseBuffer(0x01) / 10.0;
-    }
-    else
-    {
-        Serial.println("+ GET DC FAILED");
-        reachable = false;
-        _dc_u = -1;
-        _dc_i = -1;
-    }
-    delay(readDelay);
-    digitalWrite(2, HIGH);
-
-    result = node.readInputRegisters(3035, 10);
-    if (result == node.ku8MBSuccess)
-    {
-        _ac_u = node.getResponseBuffer(0x00) / 10.0;
-        _ac_i = node.getResponseBuffer(0x03) / 10.0;
-        _ac_f = node.getResponseBuffer(0x07) / 100.0;
-
-        _temperature = node.getResponseBuffer(0x06) / 10.0;
-    }
-    else
-    {
-        Serial.println("+ GET AC FAILED");
-        reachable = false;
-        _ac_u = -1;
-        _ac_i = -1;
-        _ac_f = -1;
-        _temperature = -1;
-    }
-    digitalWrite(2, LOW);
-    delay(50);
-    digitalWrite(2, HIGH);
-    //    delay(400);
-
-    Serial.println("------------------------------------------");
     return reachable;
 }
 
 /*
-Returns data from AC
-@param _ac_u AC voltage (float)
-@param _ac_i AC current (float)
-@param _ac_f AC frequency (float)
+Is device reachable
 */
-void inverter::getAC(float *__ac_u, float *__ac_i, float *__ac_f)
-{
-    *__ac_u = _ac_u;
-    *__ac_i = _ac_i;
-    *__ac_f = _ac_f;
-}
-
-/*
-Returns data from DC
-@param _dc_u DC voltage (float)
-@param _dc_i DC current (float)
-*/
-void inverter::getDC(float *__dc_u, float *__dc_i)
-{
-    *__dc_u = _dc_u;
-    *__dc_i = _dc_i;
-}
-
-/*
-Returns temperature
-@param _temperature (float)
-*/
-void inverter::getTemperature(float *__temperature)
-{
-    *__temperature = _temperature;
-}
-
-/*
-Returns power
-@param _power (float)
-*/
-void inverter::getPower(float *__power)
-{
-    *__power = _power;
-}
-
-/*
-Returns energy today
-@param _energyToday (float)
-*/
-void inverter::getEnergyToday(float *__energyToday)
-{
-    *__energyToday = _energyToday;
-}
-
-/*
-Is inverter reachable
-*/
-bool inverter::isInverterReachable()
+bool ModbusSlaveDevice::isReachable() const
 {
     return reachable;
 }
 
-/*
-Is inverter reachable (Last state)
-*/
-bool inverter::getIsInverterReachableFlagLast()
+uint8_t ModbusSlaveDevice::getLastErrorCode() const
 {
-    return reachable_flag__lst;
+    return result;
 }
 
-bool inverter::setIsInverterReachableFlagLast(bool _value)
+uint8_t ModbusSlaveDevice::getRetriesNeeded() const
 {
-    reachable_flag__lst = _value;
-    return reachable_flag__lst;
+    return retriesNeeded;
 }
 
-bool inverter::isSoftRun()
+void ModbusSlaveDevice::begin(RS485Interface &iface)
 {
-    return _softRun;
+    rs485if = &iface;
 }
 
-void inverter::begin()
+String ModbusSlaveDevice::getName() const
 {
-    rs485.begin(9600);
+    return {F("dev")};
+}
+
+String ModbusSlaveDevice::getMqttTopic() const
+{
+    // return String(F(mqtt_base_topic)) + F("SENSOR");
+    return String(F(mqtt_base_topic));
+}
+
+ModbusSlaveDevice::RegisterType ModbusSlaveDevice::getRegisterType() const
+{
+    return RegisterType::InputRegisters;
+}
+
+uint16_t ModbusSlaveDevice::getAddressOffset() const
+{
+    return 1;
+}
+
+/////////////////////////////////////////////////////
+
+void RS485Interface::preTransmission()
+{
+    digitalWrite(MAX485_DE, 1);
+}
+
+void RS485Interface::postTransmission()
+{
+    digitalWrite(MAX485_DE, 0);
+}
+
+SoftwareSerial RS485Interface::serial(rs485_RX, rs485_TX, false); // RX, TX, Invert signal
+
+void RS485Interface::begin(uint8_t slaveid)
+{
+    serial.begin(9600);
 
     pinMode(MAX485_DE, OUTPUT);
     // Init in receive mode
     digitalWrite(MAX485_DE, 0);
 
-    node.begin(slaveID_inverter, rs485); // SlaveID,Serial
+    node.begin(slaveid, serial); // SlaveID, Serial
     // Callbacks allow us to configure the RS485 transceiver correctly
     node.preTransmission(preTransmission);
     node.postTransmission(postTransmission);
 }
 
-/////////////////////////////////////////////////////
-
-void preTransmission()
+ModbusMaster *RS485Interface::master()
 {
-    digitalWrite(MAX485_DE, 1);
-}
-
-void postTransmission()
-{
-    digitalWrite(MAX485_DE, 0);
-}
-
-//////////////////////////////////////////////////////
-
-void otherModbusDevice::begin()
-{
-
-#ifdef otherNode
-
-
-    digitalWrite(MAX485_DE, 0);
-
-    node2.begin(oSlaveID, rs485); // SlaveID,Serial
-    // Callbacks allow us to configure the RS485 transceiver correctly
-    node2.preTransmission(preTransmission);
-    node2.postTransmission(postTransmission);
-
-#endif
-}
-
-bool otherModbusDevice::request()
-{
-
-#ifdef otherNode
-    uint8_t result;
-
-    result = node2.readHoldingRegisters(oStartReg, oNumReg);
-    if (result == node.ku8MBSuccess)
-    {
-        for (uint16_t x = 0; x < oNumReg; x++)
-        {
-            node2Output[x] = node2.getResponseBuffer(x);
-            /*Serial.print("## ");
-            Serial.print(x);
-            Serial.print("\t");
-            Serial.println(node2Output[x]);*/
-        }
-        node2Reachable = true;
-    }
-    else
-    {
-        node2Reachable = false;
-        return false;
-    }
-    return true;
-#else
-    return true;
-#endif
-}
-
-int *otherModbusDevice::getNode2Data()
-{
-#ifdef otherNode
-
-    return node2Output;
-#else
-    return 0;
-#endif
-}
-
-bool otherModbusDevice::reachable()
-{
-#ifdef otherNode
-
-    return node2Reachable;
-#else
-    return true;
-#endif
+    return &node;
 }

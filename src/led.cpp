@@ -38,12 +38,12 @@ void LED::blueToggle()
     digitalWrite(LED_BLUE, !digitalRead(LED_BLUE));
 }
 
-void LED::blueOn()
+void LED::greenOn()
 {
     digitalWrite(LED_BLUE, HIGH);
 }
 
-void LED::blueOff()
+void LED::greenOff()
 {
     digitalWrite(LED_BLUE, LOW);
 }
