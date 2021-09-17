@@ -5,3 +5,5 @@ src/config.h
 .vs
 .vscode
 .vscode/
+/.cproject
+/.project

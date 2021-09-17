@@ -1,15 +1,7 @@
 #include "mqtt.h"
 
-#ifdef MQTT
 WiFiClient net;
 PubSubClient client(net);
-#endif
-
-// TODO: fix this stuff
-
-// void reconnect();
-// void connect();
-// void mqtt_callback(char *topic, byte *payload, unsigned int length);
 
 myMqtt::myMqtt()
 {
