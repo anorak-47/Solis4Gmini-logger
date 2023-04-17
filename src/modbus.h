@@ -10,6 +10,8 @@ enum class ModbusRegisterValueType
     U32,
     S16,
     S32,
+	Float,
+	BCD,
 	DI
 };
 
@@ -22,7 +24,7 @@ enum class CardType
 	Temperature
 };
 
-struct CardDescription
+struct UIDescription
 {
     const char *name;
     const char *unit;
@@ -35,7 +37,7 @@ struct ModbusRegisterDescription
     ModbusRegisterValueType type{ModbusRegisterValueType::U16};
     double scale{1.0};
     const char *mqttTopic{};
-    CardDescription card{};
+    UIDescription card{};
 };
 
 
@@ -43,7 +45,7 @@ struct ModbusRegisterValue
 {
     double value;
     bool valid;
-    ModbusRegisterDescription const *reg{};
+    ModbusRegisterDescription const *desc{};
 };
 
 using RegisterValues = std::map<uint16_t, ModbusRegisterValue>;
@@ -58,15 +60,19 @@ struct DeviceRegisterSet
 class RS485Interface
 {
 public:
-	void begin(uint8_t slaveid);
-	ModbusMaster *master();
+	RS485Interface(uint8_t slaveid, Stream &stream);
+	void begin();
+
+	ModbusMaster *client();
+	uint8_t getServerId() const;
 
 private:
     static void preTransmission();
     static void postTransmission();
 
-    static SoftwareSerial serial;
+    Stream *serial{};
 	ModbusMaster node;
+	uint8_t slaveid{1};
 };
 
 class ModbusSlaveDevice
@@ -80,14 +86,19 @@ public:
 		InputRegisters
 	};
 
+	explicit ModbusSlaveDevice(RS485Interface &iface);
 	virtual ~ModbusSlaveDevice() = default;
 
-    void begin(RS485Interface &iface);
+    void begin();
     bool request();
     
+    uint8_t getServerId() const;
+
     bool isReachable() const;
+    bool hasErrorCodeChanged() const;
     uint8_t getLastErrorCode() const;
     uint8_t getRetriesNeeded() const;
+    uint32_t getErrorCount() const;
 
     virtual String getName() const;
     virtual String getMqttTopic() const;
@@ -112,5 +123,7 @@ protected:
     RS485Interface *rs485if{};
     bool reachable{};
     uint8_t result{};
+    uint8_t lastResult{ModbusMaster::ku8MBInvalidSlaveID};
     uint8_t retriesNeeded{};
+    uint32_t errorCount{};
 };

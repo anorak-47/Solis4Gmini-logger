@@ -4,21 +4,21 @@
 class InverterInputValuesPower : public ModbusSlaveDevice
 {
 public:
-    InverterInputValuesPower();
+    explicit InverterInputValuesPower(RS485Interface &iface);
     String getName() const override;
 };
 
 class InverterInputValues : public ModbusSlaveDevice
 {
 public:
-	InverterInputValues();
+	explicit InverterInputValues(RS485Interface &iface);
 	String getName() const override;
 };
 
 class InverterHoldingRegisters : public ModbusSlaveDevice
 {
 public:
-	InverterHoldingRegisters();
+	explicit InverterHoldingRegisters(RS485Interface &iface);
 	String getName() const override;
 	RegisterType getRegisterType() const override;
 };
@@ -26,7 +26,7 @@ public:
 class InverterDiscreteInputs : public ModbusSlaveDevice
 {
 public:
-	InverterDiscreteInputs();
+	explicit InverterDiscreteInputs(RS485Interface &iface);
 	String getName() const override;
 	RegisterType getRegisterType() const override;
 	uint16_t getAddressOffset() const override;

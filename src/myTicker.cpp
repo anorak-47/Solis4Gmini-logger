@@ -19,26 +19,26 @@ void myTicker::resetTimeoutStatus()
     timeoutStatus = false;
 }
 
-bool myTicker::isTimeout10S()
+bool myTicker::isTimeoutShort()
 {
 
-    return timeout10S;
+    return timeoutShort;
 }
 
-void myTicker::resetTimeout10S()
+void myTicker::resetTimeoutShort()
 {
-	timeout10S = false;
+	timeoutShort = false;
 }
 
-bool myTicker::isTimeout30S()
+bool myTicker::isTimeoutLong()
 {
 
-    return timeout30S;
+    return timeoutLong;
 }
 
-void myTicker::resetTimeout30S()
+void myTicker::resetTimeoutLong()
 {
-	timeout30S = false;
+	timeoutLong = false;
 }
 
 void myTicker::attach(uint16_t seconds, std::function<void()> &&func)
@@ -53,7 +53,7 @@ Starts ticker
 */
 void myTicker::begin()
 {
-	attach(10, [this](){timeout10S = true;});
-	attach(30, [this](){timeout30S = true;});
+	attach(TIMEOUT_SHORT, [this](){timeoutShort = true;});
+	attach(TIMEOUT_LONG, [this](){timeoutLong = true;});
 	attach(mqttStatusIntveral, [this](){timeoutStatus = true;});
 }

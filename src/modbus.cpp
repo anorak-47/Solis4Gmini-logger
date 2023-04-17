@@ -8,7 +8,7 @@ namespace
 constexpr auto maxModbusReadRetries{3};
 }
 
-void dumpCard(CardDescription const &card)
+void dumpCard(UIDescription const &card)
 {
     Serial.println(F("---- card"));
     Serial.println(card.name);
@@ -135,6 +135,32 @@ void ModbusSlaveDevice::invalidateRegisters(DeviceRegisterSet const *regSet)
     }
 }
 
+float toFloat(uint16_t reg1, uint16_t reg2)
+{
+    /*
+	float res = NAN;
+	((uint8_t *)&res)[3] = reg1 >> 8;
+	((uint8_t *)&res)[2] = reg1 & 0xff;
+	((uint8_t *)&res)[1] = reg2 >> 8;
+	((uint8_t *)&res)[0] = reg2 & 0xff;
+	return res;
+     */
+
+    union
+    {
+        uint32_t x;
+        float f;
+    } res;
+
+    res.x = ((static_cast<uint32_t>(reg1) << 16) | reg2);
+    return res.f;
+}
+
+byte bcdToDec(byte val)
+{
+    return ((val / 16 * 10) + (val % 16));
+}
+
 double regToValue(ModbusMaster *node, uint16_t offset, ModbusRegisterValueType type, double scale)
 {
     double value{};
@@ -155,11 +181,18 @@ double regToValue(ModbusMaster *node, uint16_t offset, ModbusRegisterValueType t
                                      static_cast<uint32_t>((node->getResponseBuffer(offset + 1))));
         break;
     case ModbusRegisterValueType::DI:
+    {
         auto buf{node->getResponseBuffer(0)};
 
         if (buf & (1 << offset))
             value = 1.0;
-
+        break;
+    }
+    case ModbusRegisterValueType::Float:
+        value = toFloat(node->getResponseBuffer(offset), node->getResponseBuffer(offset + 1));
+        break;
+    case ModbusRegisterValueType::BCD:
+        value = bcdToDec(static_cast<int8_t>(node->getResponseBuffer(offset)));
         break;
     }
 
@@ -169,29 +202,43 @@ double regToValue(ModbusMaster *node, uint16_t offset, ModbusRegisterValueType t
 /* Modbus function 0x06 Write Single Register. */
 uint8_t ModbusSlaveDevice::writeHoldingRegister(ModbusRegisterDescription const &reg, uint16_t value)
 {
-	auto u16WriteAddress{reg.address - getAddressOffset()};
-	return rs485if->master()->writeSingleRegister(u16WriteAddress, value);
+    auto u16WriteAddress{reg.address - getAddressOffset()};
+
+    uint8_t result{};
+    int retries = maxModbusReadRetries;
+    bool timeout{true};
+
+    while (retries > 0 && timeout)
+    {
+        result = rs485if->client()->writeSingleRegister(u16WriteAddress, value);
+        timeout = result == ModbusMaster::ku8MBResponseTimedOut;
+        --retries;
+        delay(readDelay / 2);
+    }
+
+    return result;
 }
 
 uint8_t ModbusSlaveDevice::readRegisters(uint16_t startAddress, uint8_t u16ReadQty)
 {
     digitalWrite(2, LOW);
+
     auto u16ReadAddress{startAddress - getAddressOffset()};
     uint8_t result{};
 
     switch (getRegisterType())
     {
     case RegisterType::Coils:
-        result = rs485if->master()->readCoils(u16ReadAddress, u16ReadQty);
+        result = rs485if->client()->readCoils(u16ReadAddress, u16ReadQty);
         break;
     case RegisterType::DiscreteInputs:
-        result = rs485if->master()->readDiscreteInputs(u16ReadAddress, u16ReadQty);
+        result = rs485if->client()->readDiscreteInputs(u16ReadAddress, u16ReadQty);
         break;
     case RegisterType::HoldingRegisters:
-        result = rs485if->master()->readHoldingRegisters(u16ReadAddress, u16ReadQty);
+        result = rs485if->client()->readHoldingRegisters(u16ReadAddress, u16ReadQty);
         break;
     case RegisterType::InputRegisters:
-        result = rs485if->master()->readInputRegisters(u16ReadAddress, u16ReadQty);
+        result = rs485if->client()->readInputRegisters(u16ReadAddress, u16ReadQty);
         break;
     }
 
@@ -202,6 +249,8 @@ uint8_t ModbusSlaveDevice::readRegisters(uint16_t startAddress, uint8_t u16ReadQ
 
 bool ModbusSlaveDevice::readRegisterSet(DeviceRegisterSet const *regSet)
 {
+    lastResult = result;
+
     DeviceRegisterSet irs;
     ModbusRegisterDescription reg;
     bool success{true};
@@ -221,10 +270,13 @@ bool ModbusSlaveDevice::readRegisterSet(DeviceRegisterSet const *regSet)
             success = result == ModbusMaster::ku8MBSuccess;
             timeout = result == ModbusMaster::ku8MBResponseTimedOut;
             --retries;
-            delay(readDelay / 2);
+            delay(readDelay);
         }
 
         retriesNeeded = maxModbusReadRetries - retries;
+
+        if (!success)
+            ++errorCount;
 
         regPos = 0;
         memcpy_P(&reg, &irs.registers[regPos++], sizeof(ModbusRegisterDescription));
@@ -234,7 +286,7 @@ bool ModbusSlaveDevice::readRegisterSet(DeviceRegisterSet const *regSet)
             if (success)
             {
                 auto offset{reg.address - irs.startAddress};
-                registerValues[reg.address].value = regToValue(rs485if->master(), offset, reg.type, reg.scale);
+                registerValues[reg.address].value = regToValue(rs485if->client(), offset, reg.type, reg.scale);
                 registerValues[reg.address].valid = true;
             }
 
@@ -272,6 +324,11 @@ RegisterValues const &ModbusSlaveDevice::getRegisterValues() const
     return registerValues;
 }
 
+uint8_t ModbusSlaveDevice::getServerId() const
+{
+    return rs485if->getServerId();
+}
+
 /*
 Requests data from the inverter
 */
@@ -285,10 +342,20 @@ bool ModbusSlaveDevice::request()
     {
         // resetRegisters(deviceRegisters);
         invalidateRegisters(deviceRegisters);
-        Serial.println(F("Inverter not reachable"));
+        Serial.println(F("modbus device not answering"));
     }
 
     return reachable;
+}
+
+bool ModbusSlaveDevice::hasErrorCodeChanged() const
+{
+    return lastResult != result;
+}
+
+uint32_t ModbusSlaveDevice::getErrorCount() const
+{
+    return errorCount;
 }
 
 /*
@@ -309,7 +376,7 @@ uint8_t ModbusSlaveDevice::getRetriesNeeded() const
     return retriesNeeded;
 }
 
-void ModbusSlaveDevice::begin(RS485Interface &iface)
+ModbusSlaveDevice::ModbusSlaveDevice(RS485Interface &iface)
 {
     rs485if = &iface;
 }
@@ -321,7 +388,6 @@ String ModbusSlaveDevice::getName() const
 
 String ModbusSlaveDevice::getMqttTopic() const
 {
-    // return String(F(mqtt_base_topic)) + F("SENSOR");
     return String(F(mqtt_base_topic));
 }
 
@@ -347,23 +413,29 @@ void RS485Interface::postTransmission()
     digitalWrite(MAX485_DE, 0);
 }
 
-SoftwareSerial RS485Interface::serial(rs485_RX, rs485_TX, false); // RX, TX, Invert signal
-
-void RS485Interface::begin(uint8_t slaveid)
+RS485Interface::RS485Interface(uint8_t slaveid, Stream &stream) : slaveid(slaveid)
 {
-    serial.begin(9600);
+    serial = &stream;
+}
 
+uint8_t RS485Interface::getServerId() const
+{
+    return slaveid;
+}
+
+void RS485Interface::begin()
+{
     pinMode(MAX485_DE, OUTPUT);
     // Init in receive mode
     digitalWrite(MAX485_DE, 0);
 
-    node.begin(slaveid, serial); // SlaveID, Serial
+    node.begin(slaveid, *serial); // SlaveID, Serial
     // Callbacks allow us to configure the RS485 transceiver correctly
     node.preTransmission(preTransmission);
     node.postTransmission(postTransmission);
 }
 
-ModbusMaster *RS485Interface::master()
+ModbusMaster *RS485Interface::client()
 {
     return &node;
 }

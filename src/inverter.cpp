@@ -37,7 +37,7 @@ const DeviceRegisterSet inverterRegistersPower[3] PROGMEM =
 
 /* ----------------- Solis 4G / 5G Other Input Registers ---------------- */
 
-const ModbusRegisterDescription regS1[6] PROGMEM =
+const ModbusRegisterDescription regS1[] PROGMEM =
 {
 	{3009, ModbusRegisterValueType::U32, 1.0, "3009", {"Total energy", "kWh", CardType::Generic}},
 	{3011, ModbusRegisterValueType::U32, 1.0, "3011", {"Energy this month", "kWh", CardType::Generic}},
@@ -47,30 +47,27 @@ const ModbusRegisterDescription regS1[6] PROGMEM =
 	{}
 };
 
-const ModbusRegisterDescription regS2[3] PROGMEM =
+const ModbusRegisterDescription regS2[] PROGMEM =
 {
 	{3022, ModbusRegisterValueType::U16, 0.1, "3022", {"DC voltage", "V", CardType::NoCard}},
 	{3023, ModbusRegisterValueType::U16, 0.1, "3023", {"DC current", "A", CardType::NoCard}},
 	{}
 };
 
-const ModbusRegisterDescription regS3[6] PROGMEM =
+const ModbusRegisterDescription regS3[] PROGMEM =
 {
 	{3036, ModbusRegisterValueType::U16, 0.1, "3036", {"AC voltage", "V", CardType::Generic}},
 	{3039, ModbusRegisterValueType::U16, 0.1, "3039", {"AC current", "A", CardType::Generic}},
 	{3041, ModbusRegisterValueType::U16, 1.0, "3041", {"Working mode", "", CardType::NoCard}},
 	{3042, ModbusRegisterValueType::U16, 0.1, "3042", {"Temperature", "C", CardType::Temperature}},
 	{3043, ModbusRegisterValueType::U16, 0.01, "3043", {"Frequency", "Hz", CardType::Generic}},
-	{}
-};
-
-const ModbusRegisterDescription regS4[2] PROGMEM =
-{
+	{3045, ModbusRegisterValueType::S32, 1.0, "3045", {"Limit reactive power adj", "%", CardType::Generic}},
+	{3047, ModbusRegisterValueType::S32, 1.0, "3047", {"Limited power act", "", CardType::Generic}},
 	{3050, ModbusRegisterValueType::U16, 0.01, "3050", {"Power limit", "%", CardType::Generic}},
 	{}
 };
 
-const ModbusRegisterDescription regS5[7] PROGMEM =
+const ModbusRegisterDescription regS5[] PROGMEM =
 {
 	{3067, ModbusRegisterValueType::U16, 1.0, "3067", {"Fault code 01", "", CardType::NoCard}},
 	{3068, ModbusRegisterValueType::U16, 1.0, "3068", {"Fault code 02", "", CardType::NoCard}},
@@ -85,8 +82,7 @@ const DeviceRegisterSet inverterRegistersInput[] PROGMEM =
 {
 	{3009, 8, regS1},
 	{3022, 2, regS2},
-	{3036, 8, regS3},
-	{3050, 1, regS4},
+	{3036, 15, regS3},
 	{3067, 6, regS5},
 	// or inverterRegistersPower
 	{3088, 3, regF3},
@@ -95,19 +91,21 @@ const DeviceRegisterSet inverterRegistersInput[] PROGMEM =
 
 /* ----------------- Solis 4G / 5G Holding Registers ---------------- */
 
-const ModbusRegisterDescription regW1[2] PROGMEM =
+const ModbusRegisterDescription regW1[] PROGMEM =
 {
-	{3052, ModbusRegisterValueType::U16, 0.01, "3052", {"Power limit set", "%", CardType::Generic}},
+	//{3051, ModbusRegisterValueType::U16, 0.01, "3051", {"Reactive power limit (set)", "%", CardType::Generic}},
+	{3052, ModbusRegisterValueType::U16, 0.01, "3052", {"Power limit (set)", "%", CardType::Generic}},
 	{}
 };
 
-const ModbusRegisterDescription regW2[2] PROGMEM =
+const ModbusRegisterDescription regW2[] PROGMEM =
 {
 	{3070, ModbusRegisterValueType::U16, 1.0, "3070", {"Power limit switch", "0=ON, 1=OFF", CardType::StatusInverted}},
+	//{3071, ModbusRegisterValueType::U16, 1.0, "3071", {"Reaktive power limit switch", "0=ON, 1=OFF", CardType::StatusInverted}},
 	{}
 };
 
-const DeviceRegisterSet inverterHoldingRegisters[3] PROGMEM =
+const DeviceRegisterSet inverterHoldingRegisters[] PROGMEM =
 {
 	{3052, 1, regW1},
 	{3070, 1, regW2},
@@ -144,6 +142,7 @@ const ModbusRegisterDescription regD2[9] PROGMEM =
 	{}
 };
 
+
 const DeviceRegisterSet inverterDiscreteInputRegisters[3] PROGMEM =
 {
 	{2501, 10, regD1},
@@ -151,53 +150,9 @@ const DeviceRegisterSet inverterDiscreteInputRegisters[3] PROGMEM =
 	{}
 };
 
-/* ----------------- Countis E04 ---------------- */
-
-const ModbusRegisterDescription regC1[4] PROGMEM =
-{
-	{50520, ModbusRegisterValueType::U32, 0.01, "50520", {"Simple voltage : V1", "V", CardType::Generic}},
-	{50526, ModbusRegisterValueType::U32, 0.01, "50526", {"Frequency", "Hz", CardType::Generic}},
-	{50528, ModbusRegisterValueType::U32, 0.001, "50528", {"Current : I1", "A", CardType::Generic}},
-	{}
-};
-
-const ModbusRegisterDescription regC2[5] PROGMEM =
-{
-	{50536, ModbusRegisterValueType::S32, 10, "50536", {"Sum Active Power", "W", CardType::Generic}},
-	{50538, ModbusRegisterValueType::S32, 10, "50538", {"Sum Reactive Power", "var", CardType::Generic}},
-	{50540, ModbusRegisterValueType::U32, 0.1, "3023", {"Sum Apparent Power", "VA", CardType::Generic}},
-	{50540, ModbusRegisterValueType::S32, 0.001, "3023", {"Sum Power Factor", "", CardType::Generic}},
-	{}
-};
-
-const ModbusRegisterDescription regC3[6] PROGMEM =
-{
-	{3036, ModbusRegisterValueType::U16, 0.1, "3036", {"AC voltage", "V", CardType::Generic}},
-	{3039, ModbusRegisterValueType::U16, 0.1, "3039", {"AC current", "A", CardType::Generic}},
-	{3041, ModbusRegisterValueType::U16, 0.1, "3041", {"Working mode", "", CardType::Generic}},
-	{3042, ModbusRegisterValueType::U16, 0.1, "3042", {"Temperature", "C", CardType::Generic}},
-	{3043, ModbusRegisterValueType::U16, 0.01, "3043", {"Frequency", "Hz", CardType::Generic}},
-	{}
-};
-
-const ModbusRegisterDescription regC4[2] PROGMEM =
-{
-	{3050, ModbusRegisterValueType::U16, 0.001, "3050", {"Power limit", "%", CardType::Generic}}	,
-	{}
-};
-
-const DeviceRegisterSet countisE04Registers[5] PROGMEM =
-{
-	{3009, 8, regC1},
-	{3022, 2, regC2},
-	{3036, 8, regC3},
-	{3050, 1, regC4},
-	{}
-};
-
 // clang-format on
 
-InverterInputValuesPower::InverterInputValuesPower()
+InverterInputValuesPower::InverterInputValuesPower(RS485Interface &iface) : ModbusSlaveDevice(iface)
 {
     deviceRegisters = inverterRegistersPower;
     initRegisters(deviceRegisters);
@@ -205,11 +160,10 @@ InverterInputValuesPower::InverterInputValuesPower()
 
 String InverterInputValuesPower::getName() const
 {
-    //return {F("IVP")};
-	return {F("ivp")};
+	return {F("pw")};
 }
 
-InverterInputValues::InverterInputValues()
+InverterInputValues::InverterInputValues(RS485Interface &iface) : ModbusSlaveDevice(iface)
 {
     deviceRegisters = inverterRegistersInput;
     initRegisters(deviceRegisters);
@@ -217,11 +171,10 @@ InverterInputValues::InverterInputValues()
 
 String InverterInputValues::getName() const
 {
-    //return {F("IV")};
-    return {F("iv")};
+    return {F("em")};
 }
 
-InverterHoldingRegisters::InverterHoldingRegisters()
+InverterHoldingRegisters::InverterHoldingRegisters(RS485Interface &iface) : ModbusSlaveDevice(iface)
 {
     deviceRegisters = inverterHoldingRegisters;
     initRegisters(deviceRegisters);
@@ -229,7 +182,6 @@ InverterHoldingRegisters::InverterHoldingRegisters()
 
 String InverterHoldingRegisters::getName() const
 {
-    //return {F("HR")};
 	return {F("hr")};
 }
 
@@ -239,7 +191,7 @@ InverterHoldingRegisters::RegisterType InverterHoldingRegisters::getRegisterType
 }
 
 
-InverterDiscreteInputs::InverterDiscreteInputs()
+InverterDiscreteInputs::InverterDiscreteInputs(RS485Interface &iface) : ModbusSlaveDevice(iface)
 {
     deviceRegisters = inverterDiscreteInputRegisters;
     initRegisters(deviceRegisters);
@@ -247,7 +199,6 @@ InverterDiscreteInputs::InverterDiscreteInputs()
 
 String InverterDiscreteInputs::getName() const
 {
-    //return {F("DI")};
 	return {F("di")};
 }
 

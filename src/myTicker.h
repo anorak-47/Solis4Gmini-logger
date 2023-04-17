@@ -12,17 +12,17 @@ public:
     bool isTimeoutStatus();
     void resetTimeoutStatus();
 
-    bool isTimeout10S();
-    void resetTimeout10S();
+    bool isTimeoutShort();
+    void resetTimeoutShort();
 
-    bool isTimeout30S();
-    void resetTimeout30S();
+    bool isTimeoutLong();
+    void resetTimeoutLong();
 
 private:
     void attach(uint16_t seconds, std::function<void()> &&func);
 
-    bool timeout10S{};
-    bool timeout30S{};
+    bool timeoutShort{};
+    bool timeoutLong{};
     bool timeoutStatus{};
 
     std::vector<std::unique_ptr<Ticker>> tickers;

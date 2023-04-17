@@ -29,6 +29,7 @@
 #include "config.h"
 #include "modbus.h"
 #include "inverter.h"
+#include "energymonitor.h"
 #include "mqtt.h"
 #include "myTicker.h"
 #include "time.h"
