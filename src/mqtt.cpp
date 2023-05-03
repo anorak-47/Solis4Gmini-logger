@@ -7,36 +7,46 @@
 // https://www.emelis.net/espMqttClient/
 //
 
-Relay relay;
 espMqttClientAsync mqttClient;
 bool reconnectMqtt{false};
 uint32_t lastReconnect{0};
 
+#ifdef DEVICE_RELAY
+Relay relay;
+#endif
+
 void MQTTClient::begin()
 {
-    mqttClient.onConnect([this](bool sessionPresent) { onMqttConnect(sessionPresent); });
-    mqttClient.onDisconnect([this](espMqttClientTypes::DisconnectReason reason) { onMqttDisconnect(reason); });
-    // mqttClient.onSubscribe(onMqttSubscribe);
-    // mqttClient.onUnsubscribe(onMqttUnsubscribe);
-    mqttClient.onMessage([this](const espMqttClientTypes::MessageProperties &properties, const char *topic, const uint8_t *payload, size_t len,
-                                size_t index, size_t total) { onMqttMessage(properties, topic, payload, len, index, total); });
-    // mqttClient.onPublish(onMqttPublish);
+#ifdef DEVICE_RELAY
+    relay.begin();
+#endif
     
     mqttClient.setServer(MQTT_HOST, MQTT_PORT);
     mqttClient.setClientId(HOSTNAME);
+    mqttClient.setCredentials(MQTT_USER, MQTT_PASSWORD);
     mqttClient.setWill(mqtt_status_control_topic, 2, true, "offline");
 
-    relay.begin();
+    mqttClient.onConnect([this](bool sessionPresent) { onMqttConnect(sessionPresent); });
+    mqttClient.onDisconnect([this](espMqttClientTypes::DisconnectReason reason) { onMqttDisconnect(reason); });
+
+    // mqttClient.onSubscribe(onMqttSubscribe);
+    // mqttClient.onUnsubscribe(onMqttUnsubscribe);
+
+    // mqttClient.onPublish(onMqttPublish);
+    mqttClient.onMessage([this](const espMqttClientTypes::MessageProperties &properties, const char *topic, const uint8_t *payload, size_t len,
+                                size_t index, size_t total) { onMqttMessage(properties, topic, payload, len, index, total); });
+
     connect();
 }
 
 void MQTTClient::loop()
 {
-    static uint32_t currentMillis = millis();
-
-    if (reconnectMqtt && currentMillis - lastReconnect > 5000)
+    if (reconnectMqtt)
     {
-        connect();
+        if (millis() - lastReconnect > 50000)
+        {
+            connect();
+        }
     }
 
     mqttClient.loop();
@@ -45,12 +55,11 @@ void MQTTClient::loop()
 // Connect to WLAN subroutine
 void MQTTClient::connect()
 {
-    Serial.println("Connecting to MQTT...");
+    Serial.println("connecting to MQTT...");
     if (!mqttClient.connect())
     {
         reconnectMqtt = true;
         lastReconnect = millis();
-        Serial.println("Connecting failed.");
     }
     else
     {
@@ -60,9 +69,7 @@ void MQTTClient::connect()
 
 void MQTTClient::onMqttConnect(bool sessionPresent)
 {
-    Serial.println("Connected to MQTT.");
-    Serial.print("Session present: ");
-    Serial.println(sessionPresent);
+    Serial.println("connected to MQTT");
 
     subscribeAll();
     mqttClient.publish(mqtt_status_control_topic, 2, true, "online");
@@ -70,7 +77,7 @@ void MQTTClient::onMqttConnect(bool sessionPresent)
 
 void MQTTClient::onMqttDisconnect(espMqttClientTypes::DisconnectReason reason)
 {
-    Serial.printf("Disconnected from MQTT: %u.\n", static_cast<uint8_t>(reason));
+    Serial.printf("disconnected from MQTT: %u\n", static_cast<uint8_t>(reason));
 
     if (WiFi.isConnected())
     {
@@ -81,7 +88,7 @@ void MQTTClient::onMqttDisconnect(espMqttClientTypes::DisconnectReason reason)
 
 void MQTTClient::onMqttSubscribe(uint16_t packetId, const espMqttClientTypes::SubscribeReturncode *codes, size_t len)
 {
-    Serial.println("Subscribe acknowledged.");
+    Serial.println("Subscribe acknowledged");
     Serial.print("  packetId: ");
     Serial.println(packetId);
     for (size_t i = 0; i < len; ++i)
@@ -93,7 +100,7 @@ void MQTTClient::onMqttSubscribe(uint16_t packetId, const espMqttClientTypes::Su
 
 void MQTTClient::onMqttUnsubscribe(uint16_t packetId)
 {
-    Serial.println("Unsubscribe acknowledged.");
+    Serial.println("Unsubscribe acknowledged");
     Serial.print("  packetId: ");
     Serial.println(packetId);
 }
@@ -101,17 +108,17 @@ void MQTTClient::onMqttUnsubscribe(uint16_t packetId)
 void MQTTClient::onMqttMessage(const espMqttClientTypes::MessageProperties &properties, const char *topic, const uint8_t *payload, size_t len,
                                size_t index, size_t total)
 {
-	constexpr auto maxPlayloadLength{100};
-	static char strval[maxPlayloadLength+1];
-    
-	if (len > maxPlayloadLength)
-		return;
-	
+    constexpr auto maxPlayloadLength{100};
+    static char strval[maxPlayloadLength + 1];
+
+    if (len > maxPlayloadLength)
+        return;
+
     String sTopic{topic};
-    
+
     memcpy(strval, payload, len);
     strval[len] = '\0';
-    
+
     String payloadStr(strval);
 
 #ifdef DEVICE_RELAY
@@ -122,12 +129,12 @@ void MQTTClient::onMqttMessage(const espMqttClientTypes::MessageProperties &prop
     }
 #endif
 
-    writePayload(sTopic, payloadStr);    
+    writePayload(sTopic, payloadStr);
 }
 
 void MQTTClient::onMqttPublish(uint16_t packetId)
 {
-    Serial.println("Publish acknowledged.");
+    Serial.println("Publish acknowledged");
     Serial.print("  packetId: ");
     Serial.println(packetId);
 }

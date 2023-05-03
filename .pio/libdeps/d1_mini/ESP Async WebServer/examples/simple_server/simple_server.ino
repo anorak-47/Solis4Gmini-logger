@@ -22,7 +22,7 @@ const char* password = "YOUR_PASSWORD";
 
 const char* PARAM_MESSAGE = "message";
 
-void notFound(AsyncWebServerRequest *request) {
+void onNotFoundRequest(AsyncWebServerRequest *request) {
     request->send(404, "text/plain", "Not found");
 }
 
@@ -65,7 +65,7 @@ void setup() {
         request->send(200, "text/plain", "Hello, POST: " + message);
     });
 
-    server.onNotFound(notFound);
+    server.onNotFound(onNotFoundRequest);
 
     server.begin();
 }

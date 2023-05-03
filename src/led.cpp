@@ -10,7 +10,7 @@ volatile uint8_t _cnt = 0;
 
 void blinkTimerCallback(void *pArg)
 {
-    //volatile uint8_t _cnt = *((int *)pArg);
+    // volatile uint8_t _cnt = *((int *)pArg);
     if (_cnt < 40)
     {
         _cnt++;
@@ -67,7 +67,7 @@ void LED::enableNightBlink()
     if (nightBlinkEnabled == false)
     {
         os_timer_setfn(&Timer1, blinkTimerCallback, &Counter);
-        Serial.println("Enabled night blink");
+        // Serial.println("Enabled night blink");
         os_timer_arm(&Timer1, 500, true); // Timer1 Interval 0,5s
     }
 
@@ -80,7 +80,8 @@ void LED::disableNightblink()
     {
         os_timer_disarm(&Timer1);
         digitalWrite(LED_BLUE, LOW);
-        Serial.println("Disabled night blink");
+        // Serial.println("Disabled night blink");
     }
+
     nightBlinkEnabled = false;
 }

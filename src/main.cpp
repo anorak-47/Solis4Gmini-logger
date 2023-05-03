@@ -6,6 +6,8 @@
 #include "myTicker.h"
 #include "time.h"
 #include "led.h"
+#include "wifi.h"
+#include "version.h"
 #include <ESPDash.h>
 #include <ESP8266WiFi.h>
 #include <ESPAsyncWebServer.h>
@@ -83,31 +85,17 @@ MQTTClient MQTTClient;
 myTicker ticker;
 LED led;
 
-#if 0
-timeControl Clock;
-uint16_t Year = 2000;
-uint8_t Month = 0;
-uint8_t Day = 0;
-uint8_t Hour = 0;
-uint8_t Minute = 0;
-#endif
-
-bool restart = false;
-
-WiFiEventHandler wifiConnectHandler;
-WiFiEventHandler wifiDisconnectHandler;
-
-AsyncWebServer server(80);
-void notFound(AsyncWebServerRequest *request);
-String restartAPI();
-
 #ifdef ESPDASH_ENABLED
 // ESP-Dash
-ESPDash dashboard(&server);
+extern AsyncWebServer server;
+static ESPDash dashboard(&server);
+
 
 Card inverterStatusCard(&dashboard, STATUS_CARD, "MODBUS slaves");
 using Cards = std::map<uint32_t, Card *>;
-Cards cards;
+static Cards cards;
+using Statistics = std::map<uint32_t, Statistic *>;
+static Statistics statistics;
 
 String getCardName(UIDescription const &card)
 {
@@ -164,8 +152,14 @@ void createCards(uint8_t id, RegisterValues const &values)
 
 void createCards()
 {
+	statistics.emplace(0, new Statistic(&dashboard, "Hostname", HOSTNAME));
+	statistics.emplace(1, new Statistic(&dashboard, "Version", VERSION));
+	statistics.emplace(2, new Statistic(&dashboard, "Build Date", COMPILED_TS));
+	statistics.emplace(3, new Statistic(&dashboard, "WIFI SSID", WIFI_SSID));
+	
     std::for_each(std::begin(modbusSlaves), std::end(modbusSlaves),
                   [](auto const &slave) { createCards(slave->getServerId(), slave->getRegisterValues()); });
+
     dashboard.sendUpdates();
 }
 
@@ -258,15 +252,8 @@ void updateCards()
 
 void loopOthers()
 {
-    ArduinoOTA.handle();
+	wifi_loop();    
     MQTTClient.loop();
-    // Clock.loop();
-
-    if (restart)
-    {
-        Serial.println(F("Restarting..."));
-        ESP.reset();
-    }
 }
 
 void initModbusInterfaces()
@@ -360,17 +347,6 @@ void sendModbusSlaveValues()
     std::for_each(std::begin(modbusSlaves), std::end(modbusSlaves), [](auto const &device) { sendModbusSlaveValues(*device); });
 }
 
-void onWiFiConnect(const WiFiEventStationModeGotIP& event) {
-  (void) event;
-  Serial.println("Connected to Wi-Fi.");
-  MQTTClient.begin();
-}
-
-void onWiFiDisconnect(const WiFiEventStationModeDisconnected& event) {
-  (void) event;
-  Serial.println("Disconnected from Wi-Fi.");
-}
-
 void setup()
 {
     pinMode(2, OUTPUT);
@@ -378,7 +354,15 @@ void setup()
     led.begin();
 
     Serial.begin(115200);
+    
+    // Init Serial monitor
+    while (!Serial)
+    {
+    }
+    
     Serial.print(F("setup"));
+    
+    delay(10000);
 
     initModbusInterfaces();
 
@@ -389,62 +373,13 @@ void setup()
 #endif
 #else
     MQTTClient.addModbusSlave(inverterHR);
-#endif    
-    
+#endif
+
 #ifdef ESPDASH_ENABLED
     createCards();
 #endif
 
-    Serial.print(F("Connecting to: "));
-    Serial.println(WIFI_SSID);
-
-#ifdef staticIP
-    WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS);
-#endif
-
-    WiFi.setAutoConnect(false);
-    WiFi.setAutoReconnect(true);
-    wifiConnectHandler = WiFi.onStationModeGotIP(onWiFiConnect);
-    wifiDisconnectHandler = WiFi.onStationModeDisconnected(onWiFiDisconnect);
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    WiFi.hostname(HOSTNAME);
-
-    uint8_t wifiCnt;
-    while (WiFi.status() != WL_CONNECTED)
-    {
-        delay(500);
-        led.yellowToggle();
-        Serial.print(".");
-        wifiCnt++;
-        if (wifiCnt == 254)
-        {
-            led.yellowOff();
-            delay(120000); // 120s
-            ESP.restart(); // Restart ESP
-        }
-    }
-
-    Serial.println(" ");
-    Serial.println("Connected");
-
-
-
-    //MQTTClient.subscribe();
-
-    /* Start AsyncWebServer */
-    server.onNotFound(notFound);
-    server.on("/api/restart", HTTP_GET, [](AsyncWebServerRequest *request) { request->send(200, "text/html", restartAPI()); });
-
-    server.begin();
-    // Start OTA
-    ArduinoOTA.begin();
-    ArduinoOTA.handle();
-
-    // Clock.begin();
-    ArduinoOTA.handle();
-
-    // Clock.getDate(&Year, &Month, &Day);
-    // Clock.getTime(&Hour, &Minute);
+    wifi_setup();
 
     ticker.begin();
     led.yellowOn();
@@ -478,7 +413,7 @@ void updateInverterValues()
 {
     if (ticker.isTimeoutShort())
     {
-        //MQTTClient.sendPayload(mqtt_status_tick_topic, "1");
+        // MQTTClient.sendPayload(mqtt_status_tick_topic, "1");
         ticker.resetTimeoutShort();
 
         std::for_each(std::begin(modbusSlavesPower), std::end(modbusSlavesPower),
@@ -490,18 +425,18 @@ void updateInverterValues()
                       });
 
         loopOthers();
-        //MQTTClient.sendPayload(mqtt_status_tick_topic, "0");
+        // MQTTClient.sendPayload(mqtt_status_tick_topic, "0");
     }
 
     if (ticker.isTimeoutLong())
     {
-        //MQTTClient.sendPayload(mqtt_status_tick_topic, "2");
+        // MQTTClient.sendPayload(mqtt_status_tick_topic, "2");
         ticker.resetTimeoutLong();
 
         std::for_each(std::begin(modbusSlavesOther), std::end(modbusSlavesOther),
                       [](auto const &slave)
                       {
-                          //MQTTClient.sendPayload(mqtt_status_tick_topic, slave->getName());
+                          // MQTTClient.sendPayload(mqtt_status_tick_topic, slave->getName());
                           slave->request();
                           sendModbusSlaveValues(*slave);
                           loopOthers();
@@ -512,7 +447,7 @@ void updateInverterValues()
         updateCards();
 #endif
         loopOthers();
-        //MQTTClient.sendPayload(mqtt_status_tick_topic, "0");
+        // MQTTClient.sendPayload(mqtt_status_tick_topic, "0");
     }
 }
 
@@ -533,15 +468,4 @@ void loop()
 {
     loopOthers();
     updateAll();
-}
-
-void notFound(AsyncWebServerRequest *request)
-{
-    request->send(404, F("text/plain"), F("Not found"));
-}
-
-String restartAPI()
-{
-    restart = true;
-    return F("Restarting");
 }
