@@ -1,12 +1,13 @@
 #include "myTicker.h"
+#include "config.h"
+#include <Arduino.h>
 #include <Ticker.h>
 
 Ticker mqttStatusTicker;
 Ticker readTicker;
 
-myTicker::myTicker()
-{
-}
+myTicker::myTicker() = default;
+myTicker::~myTicker() = default;
 
 bool myTicker::isTimeoutStatus()
 {
@@ -48,9 +49,6 @@ void myTicker::attach(uint16_t seconds, std::function<void()> &&func)
     tickers.emplace_back(std::move(ticker));
 }
 
-/*
-Starts ticker
-*/
 void myTicker::begin()
 {
 	attach(TIMEOUT_SHORT, [this](){timeoutShort = true;});

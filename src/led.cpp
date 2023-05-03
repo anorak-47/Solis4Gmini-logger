@@ -1,8 +1,7 @@
 #include "led.h"
-
-LED::LED()
-{
-}
+#include "config.h"
+#include <Arduino.h>
+#include <user_interface.h>
 
 os_timer_t Timer1;
 uint8_t Counter = 0;

@@ -1,10 +1,8 @@
 #pragma once
-#include "main.h"
 
 class LED
 {
 public:
-    LED();
     void begin();
 
     void blueToggle();
@@ -17,5 +15,4 @@ public:
 
     void enableNightBlink();
     void disableNightblink();
-    
 };

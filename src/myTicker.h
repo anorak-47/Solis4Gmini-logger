@@ -1,12 +1,17 @@
 #pragma once
-#include "main.h"
+#include <cinttypes>
+#include <functional>
+#include <vector>
+#include <memory>
 
 class Ticker;
 
 class myTicker
 {
 public:
-    myTicker();
+	myTicker();
+	~myTicker();
+	
     void begin();
 
     bool isTimeoutStatus();

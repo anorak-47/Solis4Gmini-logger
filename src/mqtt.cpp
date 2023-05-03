@@ -1,42 +1,140 @@
 #include "mqtt.h"
 #include "relay.h"
+#include "config.h"
+#include <ESP8266WiFi.h>
+
+//
+// https://www.emelis.net/espMqttClient/
+//
 
 Relay relay;
+espMqttClientAsync mqttClient;
+bool reconnectMqtt{false};
+uint32_t lastReconnect{0};
 
-WiFiClient net;
-PubSubClient client(net);
-
-/*
-Starts MQTT
-*/
 void MQTTClient::begin()
 {
-    net.setTimeout(MQTT_WIFI_CLIENT_TIMEOUT * 100);
-    client.setKeepAlive(MQTT_KEEPALIVE);
-    client.setSocketTimeout(MQTT_SOCKET_TIMEOUT);
+    mqttClient.onConnect([this](bool sessionPresent) { onMqttConnect(sessionPresent); });
+    mqttClient.onDisconnect([this](espMqttClientTypes::DisconnectReason reason) { onMqttDisconnect(reason); });
+    // mqttClient.onSubscribe(onMqttSubscribe);
+    // mqttClient.onUnsubscribe(onMqttUnsubscribe);
+    mqttClient.onMessage([this](const espMqttClientTypes::MessageProperties &properties, const char *topic, const uint8_t *payload, size_t len,
+                                size_t index, size_t total) { onMqttMessage(properties, topic, payload, len, index, total); });
+    // mqttClient.onPublish(onMqttPublish);
+    
+    mqttClient.setServer(MQTT_HOST, MQTT_PORT);
+    mqttClient.setClientId(HOSTNAME);
+    mqttClient.setWill(mqtt_status_control_topic, 2, true, "offline");
 
     relay.begin();
     connect();
 }
 
-/*
-Loops MQTT
-*/
 void MQTTClient::loop()
 {
-    if (!client.connected())
+    static uint32_t currentMillis = millis();
+
+    if (reconnectMqtt && currentMillis - lastReconnect > 5000)
     {
-        reconnect();
+        connect();
     }
-    client.loop();
+
+    mqttClient.loop();
 }
 
-/*
-Send values over MQTT
-*/
+// Connect to WLAN subroutine
+void MQTTClient::connect()
+{
+    Serial.println("Connecting to MQTT...");
+    if (!mqttClient.connect())
+    {
+        reconnectMqtt = true;
+        lastReconnect = millis();
+        Serial.println("Connecting failed.");
+    }
+    else
+    {
+        reconnectMqtt = false;
+    }
+}
+
+void MQTTClient::onMqttConnect(bool sessionPresent)
+{
+    Serial.println("Connected to MQTT.");
+    Serial.print("Session present: ");
+    Serial.println(sessionPresent);
+
+    subscribeAll();
+    mqttClient.publish(mqtt_status_control_topic, 2, true, "online");
+}
+
+void MQTTClient::onMqttDisconnect(espMqttClientTypes::DisconnectReason reason)
+{
+    Serial.printf("Disconnected from MQTT: %u.\n", static_cast<uint8_t>(reason));
+
+    if (WiFi.isConnected())
+    {
+        reconnectMqtt = true;
+        lastReconnect = millis();
+    }
+}
+
+void MQTTClient::onMqttSubscribe(uint16_t packetId, const espMqttClientTypes::SubscribeReturncode *codes, size_t len)
+{
+    Serial.println("Subscribe acknowledged.");
+    Serial.print("  packetId: ");
+    Serial.println(packetId);
+    for (size_t i = 0; i < len; ++i)
+    {
+        Serial.print("  qos: ");
+        Serial.println(static_cast<uint8_t>(codes[i]));
+    }
+}
+
+void MQTTClient::onMqttUnsubscribe(uint16_t packetId)
+{
+    Serial.println("Unsubscribe acknowledged.");
+    Serial.print("  packetId: ");
+    Serial.println(packetId);
+}
+
+void MQTTClient::onMqttMessage(const espMqttClientTypes::MessageProperties &properties, const char *topic, const uint8_t *payload, size_t len,
+                               size_t index, size_t total)
+{
+	constexpr auto maxPlayloadLength{100};
+	static char strval[maxPlayloadLength+1];
+    
+	if (len > maxPlayloadLength)
+		return;
+	
+    String sTopic{topic};
+    
+    memcpy(strval, payload, len);
+    strval[len] = '\0';
+    
+    String payloadStr(strval);
+
+#ifdef DEVICE_RELAY
+    if (sTopic == F(mqtt_relay_set_topic))
+    {
+        setRelay(sTopic, payloadStr);
+        return;
+    }
+#endif
+
+    writePayload(sTopic, payloadStr);    
+}
+
+void MQTTClient::onMqttPublish(uint16_t packetId)
+{
+    Serial.println("Publish acknowledged.");
+    Serial.print("  packetId: ");
+    Serial.println(packetId);
+}
+
 void MQTTClient::sendPayload(String const &path, String const &payload)
 {
-    client.publish(path.c_str(), payload.c_str());
+    mqttClient.publish(path.c_str(), 0, false, payload.c_str());
 }
 
 void MQTTClient::addModbusSlave(ModbusSlaveDevice &device)
@@ -44,14 +142,11 @@ void MQTTClient::addModbusSlave(ModbusSlaveDevice &device)
     modbusSlaves.emplace_back(&device);
 }
 
-/*
-Sends status
-*/
 void MQTTClient::sendStatus()
 {
-    char bufferSend[10];
+    static char bufferSend[10];
     dtostrf(WiFi.RSSI(), 0, 0, bufferSend);
-    client.publish(mqtt_status_rssi_topic, bufferSend);
+    mqttClient.publish(mqtt_status_rssi_topic, 0, false, bufferSend);
 }
 
 uint8_t decToBcd(uint8_t val)
@@ -91,7 +186,7 @@ void MQTTClient::writePayload(ModbusSlaveDevice *modbusSlave, String const &sTop
     std::for_each(std::begin(registers), std::end(registers),
                   [&modbusSlave, &topicbase, &sTopic, &regDesc, &payloadStr, this](auto const &reg)
                   {
-                      memcpy_P(&regDesc, reg.second.reg, sizeof(ModbusRegisterDescription));
+                      memcpy_P(&regDesc, reg.second.desc, sizeof(ModbusRegisterDescription));
                       auto mqttTopic{String{regDesc.mqttTopic}};
 
                       if (topicbase + mqttTopic == sTopic)
@@ -110,7 +205,7 @@ void MQTTClient::writePayload(ModbusSlaveDevice *modbusSlave, String const &sTop
                           auto path{topicbase};
                           path += F("last");
 
-                          client.publish(path.c_str(), msg.c_str());
+                          mqttClient.publish(path.c_str(), 0, false, msg.c_str());
                       }
                   });
 }
@@ -145,42 +240,19 @@ void MQTTClient::setRelay(String const &sTopic, String const &payloadStr) const
 
     String stateTopic{F(mqtt_relay_state_topic)};
     String valueStr(value);
-    client.publish(stateTopic.c_str(), valueStr.c_str());
+    mqttClient.publish(stateTopic.c_str(), 0, false, valueStr.c_str());
 #endif
 }
 
-void MQTTClient::mqtt_callback(char *topic, byte *payload, unsigned int length)
-{
-    String sTopic{topic};
-
-#ifdef DEVICE_RELAY
-    if (sTopic == F(mqtt_relay_set_topic))
-    {
-        payload[length] = '\0';
-        String payloadStr(reinterpret_cast<char *>(payload));
-        setRelay(sTopic, payloadStr);
-        return;
-    }
-#endif
-
-    if (modbusSlaves.empty())
-        return;
-
-    payload[length] = '\0';
-    String payloadStr(reinterpret_cast<char *>(payload));
-
-    writePayload(sTopic, payloadStr);
-}
-
-void MQTTClient::subscribe(String const &topic) const
+void MQTTClient::subscribe(String const &topic, uint8_t qos) const
 {
     // Serial.print(F("subscribe to: "));
     // Serial.println(topic);
 
-    client.subscribe(topic.c_str());
+    mqttClient.subscribe(topic.c_str(), qos);
 }
 
-void MQTTClient::subscribe() const
+void MQTTClient::subscribeAll() const
 {
     std::for_each(std::begin(modbusSlaves), std::end(modbusSlaves),
                   [this](auto const &modbusSlave)
@@ -190,59 +262,7 @@ void MQTTClient::subscribe() const
                   });
 
 #ifdef DEVICE_RELAY
-    auto topic{String(F(mqtt_relay_set_topic))};
-    subscribe(topic);
+    auto relayTopic{String(F(mqtt_relay_set_topic))};
+    subscribe(relayTopic, 2);
 #endif
-}
-
-void MQTTClient::reconnect()
-{
-    while (!client.connected())
-    {
-        Serial.println(F("MQTT reconnect"));
-        String clientId(F("esp8266-"));
-        clientId += String(WiFi.macAddress());
-
-        if (client.connect(clientId.c_str(), MQTTUSER, MQTTPASS, mqtt_status_control_topic, 1, true, "offline"))
-        {
-            client.publish(mqtt_status_control_topic, "online", true);
-            subscribe();
-        }
-        else
-        {
-            delay(2000);
-        }
-    }
-
-    Serial.println(F("connected to MQTT"));
-}
-
-// Connect to WLAN subroutine
-void MQTTClient::connect()
-{
-    Serial.print(F("IP assigned by DHCP is "));
-    Serial.println(WiFi.localIP());
-
-    // connecting Mqtt
-    Serial.println(F("Connecting to MQTT"));
-    client.setServer(mqttBrokerIP, mqttBrokerPort);
-    client.setCallback([this](char *topic, byte *payload, unsigned int length) { mqtt_callback(topic, payload, length); });
-
-    while (!client.connected())
-    {
-        Serial.println(F("MQTT reconnect"));
-        String clientId(F("esp8266-"));
-        clientId += String(WiFi.macAddress());
-
-        if (!client.connect(clientId.c_str(), MQTTUSER, MQTTPASS, mqtt_status_control_topic, 1, true, "offline"))
-        {
-            delay(2000);
-        }
-        else
-        {
-            client.publish(mqtt_status_control_topic, "online", true);
-        }
-
-        Serial.println(F("connected to MQTT"));
-    }
 }

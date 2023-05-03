@@ -1,5 +1,5 @@
 #include "energymonitor.h"
-#include "main.h"
+#include "config.h"
 
 // clang-format off
 

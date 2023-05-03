@@ -1,4 +1,11 @@
 #include "time.h"
+#include "config.h"
+#include <ESP8266WiFi.h>
+#include <ESP8266mDNS.h>
+#include <WiFiUdp.h>
+#include <TimeLib.h>
+#include <NTPClient.h>
+#include <Arduino.h>
 
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, NTP_SERVER_IP, TIMEZONE * 3600, 7200);

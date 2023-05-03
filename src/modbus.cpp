@@ -309,7 +309,7 @@ void ModbusSlaveDevice::dumpRegisterValues() const
     std::for_each(std::begin(registerValues), std::end(registerValues),
                   [&regDesc](auto const &reg)
                   {
-                      memcpy_P(&regDesc, reg.second.reg, sizeof(ModbusRegisterDescription));
+                      memcpy_P(&regDesc, reg.second.desc, sizeof(ModbusRegisterDescription));
                       Serial.print(F("register "));
                       Serial.print(regDesc.address);
                       Serial.print(F(", valid: "));

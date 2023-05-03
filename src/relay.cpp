@@ -1,5 +1,6 @@
 #include "relay.h"
-#include "main.h"
+#include "config.h"
+#include <Arduino.h>
 
 void Relay::begin()
 {

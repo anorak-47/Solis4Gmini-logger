@@ -1,6 +1,6 @@
 #ifndef MAIN_H
 #define MAIN_H
-
+#if 0
 // Include libraries
 #include <Arduino.h>
 #include <SoftwareSerial.h>
@@ -18,9 +18,6 @@
 #include <ESPAsyncWebServer.h>
 #include <ESPDash.h>
 
-#include <PubSubClient.h>
-#include <InfluxDb.h>
-
 #include <TimeLib.h>
 #include <NTPClient.h>
 
@@ -34,7 +31,7 @@
 #include "myTicker.h"
 #include "time.h"
 #include "led.h"
-#include "ds18b20.h"
+//#include "ds18b20.h"
 
 #ifdef IPv6
 #include <AddrList.h>
@@ -44,7 +41,5 @@
 extern "C" {
 #include "user_interface.h"
 }
-
-
-
+#endif
 #endif

@@ -1,5 +1,16 @@
+#include "config.h"
+#include "modbus.h"
+#include "inverter.h"
+#include "energymonitor.h"
+#include "mqtt.h"
+#include "myTicker.h"
+#include "time.h"
+#include "led.h"
+#include <ESPDash.h>
+#include <ESP8266WiFi.h>
+#include <ESPAsyncWebServer.h>
+#include <ArduinoOTA.h>
 #include <Arduino.h>
-#include "main.h"
 
 // source .platformio/penv/bin/activate
 // PYTHONPATH=/home/wenk/.platformio/penv/lib/python3.9/site-packages/
@@ -83,6 +94,9 @@ uint8_t Minute = 0;
 
 bool restart = false;
 
+WiFiEventHandler wifiConnectHandler;
+WiFiEventHandler wifiDisconnectHandler;
+
 AsyncWebServer server(80);
 void notFound(AsyncWebServerRequest *request);
 String restartAPI();
@@ -143,7 +157,7 @@ void createCards(uint8_t id, RegisterValues const &values)
     std::for_each(std::begin(values), std::end(values),
                   [id, &regDesc](auto const &reg)
                   {
-                      memcpy_P(&regDesc, reg.second.reg, sizeof(ModbusRegisterDescription));
+                      memcpy_P(&regDesc, reg.second.desc, sizeof(ModbusRegisterDescription));
                       createCard(id, regDesc);
                   });
 }
@@ -151,7 +165,7 @@ void createCards(uint8_t id, RegisterValues const &values)
 void createCards()
 {
     std::for_each(std::begin(modbusSlaves), std::end(modbusSlaves),
-                  [](auto const &slave) { createCards(slave->getSlaveId(), slave->getRegisterValues()); });
+                  [](auto const &slave) { createCards(slave->getServerId(), slave->getRegisterValues()); });
     dashboard.sendUpdates();
 }
 
@@ -229,7 +243,7 @@ void updateCards(uint8_t id, RegisterValues const &values)
     std::for_each(std::begin(values), std::end(values),
                   [id, &regDesc](auto const &reg)
                   {
-                      memcpy_P(&regDesc, reg.second.reg, sizeof(ModbusRegisterDescription));
+                      memcpy_P(&regDesc, reg.second.desc, sizeof(ModbusRegisterDescription));
                       updateCard(id, reg.second, regDesc);
                   });
 }
@@ -237,7 +251,7 @@ void updateCards(uint8_t id, RegisterValues const &values)
 void updateCards()
 {
     std::for_each(std::begin(modbusSlaves), std::end(modbusSlaves),
-                  [](auto const &device) { updateCards(device->getSlaveId(), device->getRegisterValues()); });
+                  [](auto const &device) { updateCards(device->getServerId(), device->getRegisterValues()); });
     dashboard.sendUpdates();
 }
 #endif
@@ -324,7 +338,7 @@ void sendModbusSlaveValues(ModbusSlaveDevice const &device)
     std::for_each(std::begin(values), std::end(values),
                   [&topicbase, &regDesc](auto const &reg)
                   {
-                      memcpy_P(&regDesc, reg.second.reg, sizeof(ModbusRegisterDescription));
+                      memcpy_P(&regDesc, reg.second.desc, sizeof(ModbusRegisterDescription));
                       MQTTClient.sendPayload(topicbase + regDesc.mqttTopic, getRepresentation(reg.second, regDesc));
                       loopOthers();
                   });
@@ -346,6 +360,17 @@ void sendModbusSlaveValues()
     std::for_each(std::begin(modbusSlaves), std::end(modbusSlaves), [](auto const &device) { sendModbusSlaveValues(*device); });
 }
 
+void onWiFiConnect(const WiFiEventStationModeGotIP& event) {
+  (void) event;
+  Serial.println("Connected to Wi-Fi.");
+  MQTTClient.begin();
+}
+
+void onWiFiDisconnect(const WiFiEventStationModeDisconnected& event) {
+  (void) event;
+  Serial.println("Disconnected from Wi-Fi.");
+}
+
 void setup()
 {
     pinMode(2, OUTPUT);
@@ -357,18 +382,31 @@ void setup()
 
     initModbusInterfaces();
 
+#ifdef DEVICE_ENMON
+    MQTTClient.addModbusSlave(enmonHR);
+#ifdef DEVICE_ENMON2
+    MQTTClient.addModbusSlave(enmonHR2);
+#endif
+#else
+    MQTTClient.addModbusSlave(inverterHR);
+#endif    
+    
 #ifdef ESPDASH_ENABLED
     createCards();
 #endif
 
     Serial.print(F("Connecting to: "));
-    Serial.println(SSID);
+    Serial.println(WIFI_SSID);
 
 #ifdef staticIP
     WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS);
 #endif
 
-    WiFi.begin(SSID, PASSWORD);
+    WiFi.setAutoConnect(false);
+    WiFi.setAutoReconnect(true);
+    wifiConnectHandler = WiFi.onStationModeGotIP(onWiFiConnect);
+    wifiDisconnectHandler = WiFi.onStationModeDisconnected(onWiFiDisconnect);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     WiFi.hostname(HOSTNAME);
 
     uint8_t wifiCnt;
@@ -389,19 +427,9 @@ void setup()
     Serial.println(" ");
     Serial.println("Connected");
 
-    // Start mqtt
-    MQTTClient.begin();
 
-#ifdef DEVICE_ENMON
-    MQTTClient.addModbusSlave(enmonHR);
-#ifdef DEVICE_ENMON2
-    MQTTClient.addModbusSlave(enmonHR2);
-#endif
-#else
-    MQTTClient.addModbusSlave(inverterHR);
-#endif
 
-    MQTTClient.subscribe();
+    //MQTTClient.subscribe();
 
     /* Start AsyncWebServer */
     server.onNotFound(notFound);
@@ -450,7 +478,7 @@ void updateInverterValues()
 {
     if (ticker.isTimeoutShort())
     {
-        MQTTClient.sendPayload(mqtt_status_tick_topic, "1");
+        //MQTTClient.sendPayload(mqtt_status_tick_topic, "1");
         ticker.resetTimeoutShort();
 
         std::for_each(std::begin(modbusSlavesPower), std::end(modbusSlavesPower),
@@ -462,18 +490,18 @@ void updateInverterValues()
                       });
 
         loopOthers();
-        MQTTClient.sendPayload(mqtt_status_tick_topic, "0");
+        //MQTTClient.sendPayload(mqtt_status_tick_topic, "0");
     }
 
     if (ticker.isTimeoutLong())
     {
-        MQTTClient.sendPayload(mqtt_status_tick_topic, "2");
+        //MQTTClient.sendPayload(mqtt_status_tick_topic, "2");
         ticker.resetTimeoutLong();
 
         std::for_each(std::begin(modbusSlavesOther), std::end(modbusSlavesOther),
                       [](auto const &slave)
                       {
-                          MQTTClient.sendPayload(mqtt_status_tick_topic, slave->getName());
+                          //MQTTClient.sendPayload(mqtt_status_tick_topic, slave->getName());
                           slave->request();
                           sendModbusSlaveValues(*slave);
                           loopOthers();
@@ -484,7 +512,7 @@ void updateInverterValues()
         updateCards();
 #endif
         loopOthers();
-        MQTTClient.sendPayload(mqtt_status_tick_topic, "0");
+        //MQTTClient.sendPayload(mqtt_status_tick_topic, "0");
     }
 }
 
