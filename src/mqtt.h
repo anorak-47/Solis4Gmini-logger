@@ -7,6 +7,18 @@
 class MQTTClient
 {
 public:
+	struct MQTTMessage
+	{
+		MQTTMessage() = default;
+		MQTTMessage(String const &t, String const &p);
+		MQTTMessage(char const *t, char const *p);
+		
+		String topic;
+		String payload;
+	};
+	
+	using MsgQueue = std::vector<MQTTMessage>;
+	
     void begin();
     void loop();
 
@@ -18,6 +30,9 @@ public:
 
 private:
     void connect();
+    
+    MQTTMessage popMsg();
+    void handleMessages();
 
     void onMqttConnect(bool sessionPresent);
     void onMqttDisconnect(espMqttClientTypes::DisconnectReason reason);
@@ -35,4 +50,9 @@ private:
     void subscribe(String const &topic, uint8_t qos = 0) const;
 
     std::vector<ModbusSlaveDevice *> modbusSlaves;
+        
+    MsgQueue messages;
+    std::atomic_bool popLocked{false};
+    std::atomic_bool pushLocked{false};
+    std::atomic_bool dataReady{false};    
 };

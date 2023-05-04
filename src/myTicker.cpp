@@ -51,7 +51,7 @@ void myTicker::attach(uint16_t seconds, std::function<void()> &&func)
 
 void myTicker::begin()
 {
-	attach(TIMEOUT_SHORT, [this](){timeoutShort = true;});
-	attach(TIMEOUT_LONG, [this](){timeoutLong = true;});
-	attach(mqttStatusIntveral, [this](){timeoutStatus = true;});
+	attach(TICKER_TIMEOUT_SHORT, [this](){timeoutShort = true;});
+	attach(TICKER_TIMEOUT_LONG, [this](){timeoutLong = true;});
+	attach(TICKER_TIMEOUT_STATUS, [this](){timeoutStatus = true;});
 }

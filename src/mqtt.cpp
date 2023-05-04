@@ -15,12 +15,20 @@ uint32_t lastReconnect{0};
 Relay relay;
 #endif
 
+MQTTClient::MQTTMessage::MQTTMessage(String const &t, String const &p) : topic{t}, payload{p}
+{
+}
+
+MQTTClient::MQTTMessage::MQTTMessage(char const *t, char const *p) : topic{t}, payload{p}
+{
+}
+
 void MQTTClient::begin()
 {
 #ifdef DEVICE_RELAY
     relay.begin();
 #endif
-    
+
     mqttClient.setServer(MQTT_HOST, MQTT_PORT);
     mqttClient.setClientId(HOSTNAME);
     mqttClient.setCredentials(MQTT_USER, MQTT_PASSWORD);
@@ -50,6 +58,7 @@ void MQTTClient::loop()
     }
 
     mqttClient.loop();
+    handleMessages();
 }
 
 // Connect to WLAN subroutine
@@ -111,25 +120,57 @@ void MQTTClient::onMqttMessage(const espMqttClientTypes::MessageProperties &prop
     constexpr auto maxPlayloadLength{100};
     static char strval[maxPlayloadLength + 1];
 
-    if (len > maxPlayloadLength)
+    if (len > maxPlayloadLength || len == 0)
         return;
-
-    String sTopic{topic};
 
     memcpy(strval, payload, len);
     strval[len] = '\0';
 
-    String payloadStr(strval);
+    popLocked = true;
+
+    while (pushLocked)
+        delay(1);
+
+    messages.emplace_back(topic, strval);    
+
+    dataReady = true;
+    popLocked = false;    
+}
+
+MQTTClient::MQTTMessage MQTTClient::popMsg()
+{
+    if (popLocked)
+        return {};
+
+    pushLocked = true;
+    
+    auto result{messages.back()};
+    messages.pop_back();
+    
+    if (messages.empty())
+        dataReady = false;
+
+    pushLocked = false;
+
+    return result;
+}
+
+void MQTTClient::handleMessages()
+{
+    if (dataReady)
+    {
+        auto msg{popMsg()};
 
 #ifdef DEVICE_RELAY
-    if (sTopic == F(mqtt_relay_set_topic))
-    {
-        setRelay(sTopic, payloadStr);
-        return;
-    }
+        if (msg.topic == F(mqtt_relay_set_topic))
+        {
+            setRelay(msg.topic, msg.payload);
+            return;
+        }
 #endif
 
-    writePayload(sTopic, payloadStr);
+        writePayload(msg.topic, msg.payload);
+    }
 }
 
 void MQTTClient::onMqttPublish(uint16_t packetId)
@@ -201,29 +242,27 @@ void MQTTClient::writePayload(ModbusSlaveDevice *modbusSlave, String const &sTop
                           auto value{getValue(regDesc, payloadStr)};
                           auto result{writeRegister(modbusSlave, regDesc, value)};
 
-                          auto msg{mqttTopic};
-                          msg += F(":");
-                          msg += String(reg.second.value);
-                          msg += F(":");
-                          msg += String(value);
-                          msg += F(":");
-                          msg += String(result);
-
-                          auto path{topicbase};
-                          path += F("last");
-
-                          mqttClient.publish(path.c_str(), 0, false, msg.c_str());
+                          auto payload{String(reg.second.value)};
+                          payload += F(":");
+                          payload += String(value);
+                          payload += F(":");
+                          payload += String(result);
+                          
+                          String resultTopic{modbusSlave->getMqttTopic() + modbusSlave->getName() + F(mqtt_modbus_set_result_holdingregister) + mqttTopic};
+                          mqttClient.publish(resultTopic.c_str(), 0, false, payload.c_str());
                       }
                   });
 }
 
 void MQTTClient::writePayload(String const &sTopic, String const &payloadStr) const
 {
+	if (sTopic.isEmpty() || payloadStr.isEmpty())
+		return;
+
     std::for_each(std::begin(modbusSlaves), std::end(modbusSlaves),
                   [&sTopic, &payloadStr, this](auto const &modbusSlave)
                   {
                       String setHRTopic{modbusSlave->getMqttTopic() + modbusSlave->getName() + F(mqtt_modbus_set_holdingregister)};
-                      Serial.println(setHRTopic);
                       if (sTopic.startsWith(setHRTopic))
                           writePayload(modbusSlave, sTopic, payloadStr);
                   });
@@ -232,6 +271,9 @@ void MQTTClient::writePayload(String const &sTopic, String const &payloadStr) co
 void MQTTClient::setRelay(String const &sTopic, String const &payloadStr) const
 {
 #ifdef DEVICE_RELAY
+	if (sTopic.isEmpty() || payloadStr.isEmpty())
+		return;
+	
     auto value{strtol(payloadStr.c_str(), nullptr, 10)};
 
     if (value > 0)

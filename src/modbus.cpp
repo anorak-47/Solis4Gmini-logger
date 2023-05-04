@@ -62,8 +62,8 @@ void ModbusSlaveDevice::initRegisters(DeviceRegisterSet const *regSet)
     DeviceRegisterSet irs;
     ModbusRegisterDescription reg;
 
-    int irsPos{};
-    int regPos{};
+    int irsPos{0};
+    int regPos{0};
 
     memcpy_P(&irs, &regSet[irsPos++], sizeof(DeviceRegisterSet));
 
@@ -76,7 +76,7 @@ void ModbusSlaveDevice::initRegisters(DeviceRegisterSet const *regSet)
         {
             registerValues.emplace(reg.address, ModbusRegisterValue{0.0, false, &irs.registers[regPos]});
 
-            regPos++;
+            ++regPos;
             memcpy_P(&reg, &irs.registers[regPos], sizeof(ModbusRegisterDescription));
         }
 
@@ -89,20 +89,21 @@ void ModbusSlaveDevice::resetRegisters(DeviceRegisterSet const *regSet)
     DeviceRegisterSet irs;
     ModbusRegisterDescription reg;
 
-    int irsPos{};
-    int regPos{};
+    int irsPos{0};
+    int regPos{0};
 
     memcpy_P(&irs, &regSet[irsPos++], sizeof(DeviceRegisterSet));
 
     while (irs.registers)
     {
         regPos = 0;
-        memcpy_P(&reg, &irs.registers[regPos], sizeof(ModbusRegisterDescription));
+        memcpy_P(&reg, &irs.registers[regPos++], sizeof(ModbusRegisterDescription));
 
         while (reg.address != 0)
         {
             registerValues[reg.address].value = 0.0;
             registerValues[reg.address].valid = false;
+
             memcpy_P(&reg, &irs.registers[regPos++], sizeof(ModbusRegisterDescription));
         }
 
@@ -115,19 +116,20 @@ void ModbusSlaveDevice::invalidateRegisters(DeviceRegisterSet const *regSet)
     DeviceRegisterSet irs;
     ModbusRegisterDescription reg;
 
-    int irsPos{};
-    int regPos{};
+    int irsPos{0};
+    int regPos{0};
 
     memcpy_P(&irs, &regSet[irsPos++], sizeof(DeviceRegisterSet));
 
     while (irs.registers)
     {
         regPos = 0;
-        memcpy_P(&reg, &irs.registers[regPos], sizeof(ModbusRegisterDescription));
+        memcpy_P(&reg, &irs.registers[regPos++], sizeof(ModbusRegisterDescription));
 
         while (reg.address != 0)
         {
             registerValues[reg.address].valid = false;
+
             memcpy_P(&reg, &irs.registers[regPos++], sizeof(ModbusRegisterDescription));
         }
 
@@ -138,12 +140,12 @@ void ModbusSlaveDevice::invalidateRegisters(DeviceRegisterSet const *regSet)
 float toFloat(uint16_t reg1, uint16_t reg2)
 {
     /*
-	float res = NAN;
-	((uint8_t *)&res)[3] = reg1 >> 8;
-	((uint8_t *)&res)[2] = reg1 & 0xff;
-	((uint8_t *)&res)[1] = reg2 >> 8;
-	((uint8_t *)&res)[0] = reg2 & 0xff;
-	return res;
+        float res = NAN;
+        ((uint8_t *)&res)[3] = reg1 >> 8;
+        ((uint8_t *)&res)[2] = reg1 & 0xff;
+        ((uint8_t *)&res)[1] = reg2 >> 8;
+        ((uint8_t *)&res)[0] = reg2 & 0xff;
+        return res;
      */
 
     union
@@ -205,7 +207,7 @@ uint8_t ModbusSlaveDevice::writeHoldingRegister(ModbusRegisterDescription const 
     auto u16WriteAddress{reg.address - getAddressOffset()};
 
     uint8_t result{};
-    int retries = maxModbusReadRetries;
+    int retries{maxModbusReadRetries};
     bool timeout{true};
 
     while (retries > 0 && timeout)
@@ -213,7 +215,9 @@ uint8_t ModbusSlaveDevice::writeHoldingRegister(ModbusRegisterDescription const 
         result = rs485if->client()->writeSingleRegister(u16WriteAddress, value);
         timeout = result == ModbusMaster::ku8MBResponseTimedOut;
         --retries;
-        delay(readDelay / 2);
+
+        if (retries > 0 && timeout)
+            delay(MODBUS_WRITE_DELAY);
     }
 
     return result;
@@ -253,48 +257,58 @@ bool ModbusSlaveDevice::readRegisterSet(DeviceRegisterSet const *regSet)
 
     DeviceRegisterSet irs;
     ModbusRegisterDescription reg;
+
+    int irsPos{0};
+    int regPos{0};
+
+    int retries{maxModbusReadRetries};
     bool success{true};
-    int irsPos{};
-    int regPos{};
+    bool timeout{true};
 
     memcpy_P(&irs, &regSet[irsPos++], sizeof(DeviceRegisterSet));
 
     while (irs.registers && success)
     {
-        int retries = maxModbusReadRetries;
-        bool timeout{true};
+        retries = maxModbusReadRetries;
+        timeout = true;
 
         while (retries > 0 && timeout)
         {
             result = readRegisters(irs.startAddress, irs.registerCount);
+
             success = result == ModbusMaster::ku8MBSuccess;
             timeout = result == ModbusMaster::ku8MBResponseTimedOut;
             --retries;
-            delay(readDelay);
+
+            if (retries > 0 && timeout)
+                delay(MODBUS_READ_DELAY);
         }
 
         retriesNeeded = maxModbusReadRetries - retries;
 
-        if (!success)
-            ++errorCount;
-
-        regPos = 0;
-        memcpy_P(&reg, &irs.registers[regPos++], sizeof(ModbusRegisterDescription));
-
-        while (reg.address != 0)
+        if (success)
         {
-            if (success)
+            regPos = 0;
+            memcpy_P(&reg, &irs.registers[regPos++], sizeof(ModbusRegisterDescription));
+
+            while (reg.address != 0)
             {
                 auto offset{reg.address - irs.startAddress};
                 registerValues[reg.address].value = regToValue(rs485if->client(), offset, reg.type, reg.scale);
                 registerValues[reg.address].valid = true;
-            }
 
-            memcpy_P(&reg, &irs.registers[regPos++], sizeof(ModbusRegisterDescription));
+                memcpy_P(&reg, &irs.registers[regPos++], sizeof(ModbusRegisterDescription));
+            }
+        }
+        else
+        {
+            ++errorCount;
         }
 
         memcpy_P(&irs, &regSet[irsPos++], sizeof(DeviceRegisterSet));
-        delay(readDelay);
+
+        if (irs.registers && success)
+            delay(MODBUS_READ_DELAY);
     }
 
     return success;

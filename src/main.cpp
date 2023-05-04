@@ -37,18 +37,18 @@ IPAddress secondaryDNS(192, 168, 111, 2); // optional
 #ifdef MODBUS_USE_HARDWARE_SERIAL
 Serial serial();
 #else
-SoftwareSerial serial(rs485_RX, rs485_TX, false); // RX, TX, Invert signal
+SoftwareSerial serial(RS485_RX, RS485_TX, false); // RX, TX, Invert signal
 #endif
 
 #ifdef DEVICE_ENMON
-RS485Interface rs485if(slaveID_device1, serial);
+RS485Interface rs485if(MODBUS_SLAVEID_DEVICE1, serial);
 EnergyMonitorInputValues enmon(mqtt_device1_topic, rs485if);
 EnergyMonitorInputValuesPower enmonPow(mqtt_device1_topic, rs485if);
 EnergyMonitorHoldingRegisters enmonHR(mqtt_device1_topic, rs485if);
 
 #ifdef DEVICE_ENMON2
 String part2(mqtt_device2_topic);
-RS485Interface rs485if2(slaveID_device2, serial);
+RS485Interface rs485if2(MODBUS_SLAVEID_DEVICE2, serial);
 
 EnergyMonitorInputValues enmon2(part2, rs485if2);
 EnergyMonitorInputValuesPower enmonPow2(part2, rs485if2);
@@ -68,7 +68,7 @@ constexpr std::array<ModbusSlaveDevice *, 1> modbusSlavesPower{&enmonPow};
 #endif
 
 #else
-RS485Interface rs485if(slaveID_inverter, serial);
+RS485Interface rs485if(MODBUS_SLAVEID_INVERTER, serial);
 InverterInputValues inverter(rs485if);
 InverterInputValuesPower inverterPow(rs485if);
 InverterHoldingRegisters inverterHR(rs485if);
@@ -89,7 +89,6 @@ LED led;
 // ESP-Dash
 extern AsyncWebServer server;
 static ESPDash dashboard(&server);
-
 
 Card inverterStatusCard(&dashboard, STATUS_CARD, "MODBUS slaves");
 using Cards = std::map<uint32_t, Card *>;
@@ -152,11 +151,12 @@ void createCards(uint8_t id, RegisterValues const &values)
 
 void createCards()
 {
-	statistics.emplace(0, new Statistic(&dashboard, "Hostname", HOSTNAME));
-	statistics.emplace(1, new Statistic(&dashboard, "Version", VERSION));
-	statistics.emplace(2, new Statistic(&dashboard, "Build Date", COMPILED_TS));
-	statistics.emplace(3, new Statistic(&dashboard, "WIFI SSID", WIFI_SSID));
-	
+    statistics.emplace(0, new Statistic(&dashboard, "WIFI SSID", WIFI_SSID));
+    statistics.emplace(1, new Statistic(&dashboard, "Hostname", HOSTNAME));
+    statistics.emplace(2, new Statistic(&dashboard, "IP Address", ""));
+    statistics.emplace(3, new Statistic(&dashboard, "Version", VERSION));
+    statistics.emplace(4, new Statistic(&dashboard, "Build Date", COMPILED_TS));
+
     std::for_each(std::begin(modbusSlaves), std::end(modbusSlaves),
                   [](auto const &slave) { createCards(slave->getServerId(), slave->getRegisterValues()); });
 
@@ -244,6 +244,12 @@ void updateCards(uint8_t id, RegisterValues const &values)
 
 void updateCards()
 {
+    statistics[0]->set("WIFI SSID", WIFI_SSID);
+    statistics[1]->set("Hostname", HOSTNAME);
+    statistics[2]->set("IP Address", WiFi.localIP().toString().c_str());
+    statistics[3]->set("Version", VERSION);
+    statistics[4]->set("Build Date", COMPILED_TS);
+
     std::for_each(std::begin(modbusSlaves), std::end(modbusSlaves),
                   [](auto const &device) { updateCards(device->getServerId(), device->getRegisterValues()); });
     dashboard.sendUpdates();
@@ -252,13 +258,13 @@ void updateCards()
 
 void loopOthers()
 {
-	wifi_loop();    
+    wifi_loop();
     MQTTClient.loop();
 }
 
 void initModbusInterfaces()
 {
-    serial.begin(slave_baudrate);
+    serial.begin(MODBUS_SLAVE_BAUDRATE);
     rs485if.begin();
 
 #ifdef DEVICE_ENMON2
@@ -315,7 +321,7 @@ String getRepresentation(ModbusRegisterValue const &reg, ModbusRegisterDescripti
 
 void sendModbusSlaveValues(ModbusSlaveDevice const &device)
 {
-    led.yellowOff();
+    led.yellowOn();
 
     auto values{device.getRegisterValues()};
     ModbusRegisterDescription regDesc;
@@ -339,7 +345,7 @@ void sendModbusSlaveValues(ModbusSlaveDevice const &device)
         MQTTClient.sendPayload(topicbase + F("errcnt"), String{device.getErrorCount()});
     }
 
-    led.yellowOn();
+    led.yellowOff();
 }
 
 void sendModbusSlaveValues()
@@ -352,16 +358,17 @@ void setup()
     pinMode(2, OUTPUT);
     digitalWrite(2, LOW);
     led.begin();
+    led.yellowOn();
 
     Serial.begin(115200);
-    
+
     // Init Serial monitor
     while (!Serial)
     {
     }
-    
-    Serial.print(F("setup"));
-    
+
+    Serial.println(F("setup"));
+
     delay(10000);
 
     initModbusInterfaces();
@@ -381,8 +388,7 @@ void setup()
 
     wifi_setup();
 
-    ticker.begin();
-    led.yellowOn();
+    ticker.begin();    
 }
 
 void showInverterStatus()
@@ -455,10 +461,10 @@ void updateAll()
 {
     if (ticker.isTimeoutStatus())
     {
-        led.yellowOff();
+        led.yellowOn();
         MQTTClient.sendStatus();
         ticker.resetTimeoutStatus();
-        led.yellowOn();
+        led.yellowOff();
     }
 
     updateInverterValues();

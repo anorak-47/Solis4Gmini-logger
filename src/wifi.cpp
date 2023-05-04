@@ -2,6 +2,7 @@
 #include "mqtt.h"
 #include "led.h"
 #include "config.h"
+// #include "debug.h"
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <ESPAsyncWebServer.h>
@@ -18,6 +19,7 @@ WiFiEventHandler wifiConnectHandler;
 WiFiEventHandler wifiDisconnectHandler;
 
 AsyncWebServer server(80);
+// RemoteDebug Debug;
 
 void onWiFiConnect(const WiFiEventStationModeGotIP &event)
 {
@@ -47,15 +49,9 @@ String onRestartRequest()
 
 void wifi_setup()
 {
-    Serial.print(F("connecting to: "));
-    Serial.println(WIFI_SSID);
-
-#ifdef staticIP
-    WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS);
-#endif
-
     WiFi.setAutoConnect(false);
     WiFi.setAutoReconnect(true);
+    WiFi.mode(WIFI_STA);
     wifiConnectHandler = WiFi.onStationModeGotIP(onWiFiConnect);
     wifiDisconnectHandler = WiFi.onStationModeDisconnected(onWiFiDisconnect);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -66,19 +62,23 @@ void wifi_setup()
     {
         delay(500);
         led.yellowToggle();
-        Serial.print(".");
         wifiCnt++;
         if (wifiCnt >= 240)
         {
-        	led.yellowOn();
+            led.yellowOn();
             delay(120000); // 120s
             led.yellowOff();
             ESP.restart(); // Restart ESP
         }
     }
 
-    Serial.println(" ");
-    Serial.println("Connected");
+    // debugA("connected, ip: %s", WiFi.localIP().toString().c_str());
+
+    // Debug.begin(HOSTNAME, RemoteDebug::INFO); // Initialize the WiFi server
+    // Debug.showProfiler(true); // Profiler (Good to measure times, to optimize codes)
+    // Debug.showColors(true);
+    // Debug.showTime(true);
+    // Debug.setResetCmdEnabled(true);
 
     /* Start AsyncWebServer */
     server.onNotFound(onNotFoundRequest);
@@ -95,7 +95,7 @@ void wifi_setup()
 void wifi_loop()
 {
     // Debug.handle();
-	ArduinoOTA.handle();
+    ArduinoOTA.handle();
 
     auto currentMillis{millis()};
     // if WiFi is down, try reconnecting
