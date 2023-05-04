@@ -1,19 +1,14 @@
 #include "mqtt.h"
-#include "relay.h"
-#include "config.h"
 #include <ESP8266WiFi.h>
 
 //
 // https://www.emelis.net/espMqttClient/
 //
 
-espMqttClientAsync mqttClient;
-bool reconnectMqtt{false};
-uint32_t lastReconnect{0};
-
-#ifdef DEVICE_RELAY
-Relay relay;
-#endif
+namespace
+{
+constexpr unsigned long mqttTryReconnectInterval{30000};
+} // namespace
 
 MQTTClient::MQTTMessage::MQTTMessage(String const &t, String const &p) : topic{t}, payload{p}
 {
@@ -51,7 +46,7 @@ void MQTTClient::loop()
 {
     if (reconnectMqtt)
     {
-        if (millis() - lastReconnect > 50000)
+        if (millis() - lastReconnect > mqttTryReconnectInterval)
         {
             connect();
         }
@@ -131,10 +126,10 @@ void MQTTClient::onMqttMessage(const espMqttClientTypes::MessageProperties &prop
     while (pushLocked)
         delay(1);
 
-    messages.emplace_back(topic, strval);    
+    messages.emplace_back(topic, strval);
 
     dataReady = true;
-    popLocked = false;    
+    popLocked = false;
 }
 
 MQTTClient::MQTTMessage MQTTClient::popMsg()
@@ -143,10 +138,10 @@ MQTTClient::MQTTMessage MQTTClient::popMsg()
         return {};
 
     pushLocked = true;
-    
+
     auto result{messages.back()};
     messages.pop_back();
-    
+
     if (messages.empty())
         dataReady = false;
 
@@ -224,7 +219,7 @@ uint8_t MQTTClient::writeRegister(ModbusSlaveDevice *modbusSlave, ModbusRegister
     return modbusSlave->writeHoldingRegister(regDesc, value);
 }
 
-void MQTTClient::writePayload(ModbusSlaveDevice *modbusSlave, String const &sTopic, String const &payloadStr) const
+void MQTTClient::writePayload(ModbusSlaveDevice *modbusSlave, String const &sTopic, String const &payloadStr)
 {
     auto registers{modbusSlave->getRegisterValues()};
 
@@ -247,17 +242,18 @@ void MQTTClient::writePayload(ModbusSlaveDevice *modbusSlave, String const &sTop
                           payload += String(value);
                           payload += F(":");
                           payload += String(result);
-                          
-                          String resultTopic{modbusSlave->getMqttTopic() + modbusSlave->getName() + F(mqtt_modbus_set_result_holdingregister) + mqttTopic};
+
+                          String resultTopic{modbusSlave->getMqttTopic() + modbusSlave->getName() + F(mqtt_modbus_set_result_holdingregister) +
+                                             mqttTopic};
                           mqttClient.publish(resultTopic.c_str(), 0, false, payload.c_str());
                       }
                   });
 }
 
-void MQTTClient::writePayload(String const &sTopic, String const &payloadStr) const
+void MQTTClient::writePayload(String const &sTopic, String const &payloadStr)
 {
-	if (sTopic.isEmpty() || payloadStr.isEmpty())
-		return;
+    if (sTopic.isEmpty() || payloadStr.isEmpty())
+        return;
 
     std::for_each(std::begin(modbusSlaves), std::end(modbusSlaves),
                   [&sTopic, &payloadStr, this](auto const &modbusSlave)
@@ -268,12 +264,12 @@ void MQTTClient::writePayload(String const &sTopic, String const &payloadStr) co
                   });
 }
 
-void MQTTClient::setRelay(String const &sTopic, String const &payloadStr) const
+void MQTTClient::setRelay(String const &sTopic, String const &payloadStr)
 {
 #ifdef DEVICE_RELAY
-	if (sTopic.isEmpty() || payloadStr.isEmpty())
-		return;
-	
+    if (sTopic.isEmpty() || payloadStr.isEmpty())
+        return;
+
     auto value{strtol(payloadStr.c_str(), nullptr, 10)};
 
     if (value > 0)
@@ -293,7 +289,7 @@ void MQTTClient::setRelay(String const &sTopic, String const &payloadStr) const
 #endif
 }
 
-void MQTTClient::subscribe(String const &topic, uint8_t qos) const
+void MQTTClient::subscribe(String const &topic, uint8_t qos)
 {
     // Serial.print(F("subscribe to: "));
     // Serial.println(topic);
@@ -301,7 +297,7 @@ void MQTTClient::subscribe(String const &topic, uint8_t qos) const
     mqttClient.subscribe(topic.c_str(), qos);
 }
 
-void MQTTClient::subscribeAll() const
+void MQTTClient::subscribeAll()
 {
     std::for_each(std::begin(modbusSlaves), std::end(modbusSlaves),
                   [this](auto const &modbusSlave)

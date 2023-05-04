@@ -22,18 +22,6 @@
 // pio run -t upload ## OTA upload
 //
 
-// If you want to have a static ip you have to enable it in the config.h file
-#ifdef staticIP
-// Set your Static IP address
-IPAddress local_IP(192, 168, 111, 230);
-// Set your Gateway IP address
-IPAddress gateway(192, 168, 111, 1);
-
-IPAddress subnet(255, 255, 255, 0);
-IPAddress primaryDNS(192, 168, 111, 1);
-IPAddress secondaryDNS(192, 168, 111, 2); // optional
-#endif
-
 #ifdef MODBUS_USE_HARDWARE_SERIAL
 Serial serial();
 #else
@@ -54,10 +42,10 @@ EnergyMonitorInputValues enmon2(part2, rs485if2);
 EnergyMonitorInputValuesPower enmonPow2(part2, rs485if2);
 EnergyMonitorHoldingRegisters enmonHR2(part2, rs485if2);
 
-constexpr std::array<ModbusSlaveDevice *, 6> modbusSlaves{&enmon, &enmonPow, &enmonHR, &enmon2, &enmonPow2, &enmonHR2};
-// constexpr std::array<ModbusSlaveDevice *, 4> modbusSlaves{&enmon, &enmonPow, &enmon2, &enmonPow2};
-constexpr std::array<ModbusSlaveDevice *, 4> modbusSlavesOther{&enmon, &enmonHR, &enmon2, &enmonHR2};
-// constexpr std::array<ModbusSlaveDevice *, 2> modbusSlavesOther{&enmon, &enmon2};
+//constexpr std::array<ModbusSlaveDevice *, 6> modbusSlaves{&enmon, &enmonPow, &enmonHR, &enmon2, &enmonPow2, &enmonHR2};
+constexpr std::array<ModbusSlaveDevice *, 4> modbusSlaves{&enmon, &enmonPow, &enmon2, &enmonPow2};
+//constexpr std::array<ModbusSlaveDevice *, 4> modbusSlavesOther{&enmon, &enmonHR, &enmon2, &enmonHR2};
+constexpr std::array<ModbusSlaveDevice *, 2> modbusSlavesOther{&enmon, &enmon2};
 constexpr std::array<ModbusSlaveDevice *, 2> modbusSlavesPower{&enmonPow, &enmonPow2};
 #else
 // constexpr std::array<ModbusSlaveDevice *, 3> modbusSlaves{&enmon, &enmonPow, &enmonHR};

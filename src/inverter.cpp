@@ -85,7 +85,7 @@ const DeviceRegisterSet inverterRegistersInput[] PROGMEM =
 	{3036, 15, regS3},
 	{3067, 6, regS5},
 	// or inverterRegistersPower
-	{3088, 3, regF3},
+	// {3088, 3, regF3},
 	{}
 };
 
@@ -108,7 +108,7 @@ const ModbusRegisterDescription regW2[] PROGMEM =
 const DeviceRegisterSet inverterHoldingRegisters[] PROGMEM =
 {
 	{3052, 1, regW1},
-	{3070, 1, regW2},
+	// {3070, 1, regW2},
 	{}
 };
 
@@ -160,7 +160,7 @@ InverterInputValuesPower::InverterInputValuesPower(RS485Interface &iface) : Modb
 
 String InverterInputValuesPower::getName() const
 {
-	return {F("pw")};
+    return {F("pw")};
 }
 
 InverterInputValues::InverterInputValues(RS485Interface &iface) : ModbusSlaveDevice(iface)
@@ -182,14 +182,13 @@ InverterHoldingRegisters::InverterHoldingRegisters(RS485Interface &iface) : Modb
 
 String InverterHoldingRegisters::getName() const
 {
-	return {F("hr")};
+    return {F("hr")};
 }
 
 InverterHoldingRegisters::RegisterType InverterHoldingRegisters::getRegisterType() const
 {
     return RegisterType::HoldingRegisters;
 }
-
 
 InverterDiscreteInputs::InverterDiscreteInputs(RS485Interface &iface) : ModbusSlaveDevice(iface)
 {
@@ -199,7 +198,7 @@ InverterDiscreteInputs::InverterDiscreteInputs(RS485Interface &iface) : ModbusSl
 
 String InverterDiscreteInputs::getName() const
 {
-	return {F("di")};
+    return {F("di")};
 }
 
 InverterDiscreteInputs::RegisterType InverterDiscreteInputs::getRegisterType() const
@@ -211,4 +210,3 @@ uint16_t InverterDiscreteInputs::getAddressOffset() const
 {
     return 0;
 }
-
