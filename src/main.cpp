@@ -7,6 +7,7 @@
 #include "time.h"
 #include "led.h"
 #include "wifi.h"
+#include "mqtt.h"
 #include "version.h"
 #include <ESPDash.h>
 #include <ESP8266WiFi.h>
@@ -144,6 +145,7 @@ void createCards()
     statistics.emplace(2, new Statistic(&dashboard, "IP Address", ""));
     statistics.emplace(3, new Statistic(&dashboard, "Version", VERSION));
     statistics.emplace(4, new Statistic(&dashboard, "Build Date", COMPILED_TS));
+    statistics.emplace(5, new Statistic(&dashboard, "MQTT conected", String(MQTTClient.isConnected()).c_str()));
 
     std::for_each(std::begin(modbusSlaves), std::end(modbusSlaves),
                   [](auto const &slave) { createCards(slave->getServerId(), slave->getRegisterValues()); });
@@ -237,6 +239,7 @@ void updateCards()
     statistics[2]->set("IP Address", WiFi.localIP().toString().c_str());
     statistics[3]->set("Version", VERSION);
     statistics[4]->set("Build Date", COMPILED_TS);
+    statistics[5]->set("MQTT conected", String(MQTTClient.isConnected()).c_str());
 
     std::for_each(std::begin(modbusSlaves), std::end(modbusSlaves),
                   [](auto const &device) { updateCards(device->getServerId(), device->getRegisterValues()); });

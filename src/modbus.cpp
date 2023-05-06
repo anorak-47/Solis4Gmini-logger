@@ -356,7 +356,7 @@ bool ModbusSlaveDevice::request()
     {
         // resetRegisters(deviceRegisters);
         invalidateRegisters(deviceRegisters);
-        //Serial.println(F("dev not reachable"));
+        Serial.println(F("no dev"));
     }
 
     return reachable;

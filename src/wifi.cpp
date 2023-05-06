@@ -26,7 +26,7 @@ void onWiFiConnect(const WiFiEventStationModeGotIP &event)
     (void)event;
     led.yellowOff();
     Serial.println("connected to WiFi");
-    MQTTClient.begin();
+    // MQTTClient.begin();
 }
 
 void onWiFiDisconnect(const WiFiEventStationModeDisconnected &event)
@@ -57,7 +57,7 @@ void wifi_setup()
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     WiFi.hostname(HOSTNAME);
 
-    uint16_t wifiCnt;
+    uint16_t wifiCnt{0};
     while (WiFi.status() != WL_CONNECTED)
     {
         delay(500);
@@ -66,7 +66,7 @@ void wifi_setup()
         if (wifiCnt >= 240)
         {
             led.yellowOn();
-            delay(120000); // 120s
+            delay(120000);
             led.yellowOff();
             ESP.restart(); // Restart ESP
         }
@@ -79,6 +79,8 @@ void wifi_setup()
     // Debug.showColors(true);
     // Debug.showTime(true);
     // Debug.setResetCmdEnabled(true);
+    
+    MQTTClient.begin();
 
     /* Start AsyncWebServer */
     server.onNotFound(onNotFoundRequest);
@@ -114,6 +116,7 @@ void wifi_loop()
 
     if (restart)
     {
+    	delay(5000);
         ESP.reset();
     }
 

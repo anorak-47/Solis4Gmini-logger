@@ -1,5 +1,4 @@
 #include "inverter.h"
-#include "main.h"
 
 // clang-format off
 

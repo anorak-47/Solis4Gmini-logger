@@ -1,7 +1,7 @@
 #pragma once
 
 #define VERSION_MAJOR 1
-#define VERSION_MINOR 1
+#define VERSION_MINOR 3
 
 #define lxstr(s) lstr(s)
 #define lstr(s) #s

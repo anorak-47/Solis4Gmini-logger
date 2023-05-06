@@ -2,6 +2,42 @@
 #include "config.h"
 #include "relay.h"
 #include "modbus.h"
+
+#ifndef ESPMQTT
+
+class MQTTClient
+{
+public:
+    void begin();
+    void loop();
+    
+    bool isConnected() const;
+    
+    void sendStatus();
+    void sendPayload(String const &path, String const &payload);
+
+    void addModbusSlave(ModbusSlaveDevice &device);
+    void subscribe() const;
+
+private:
+    void connect();
+    
+    void mqtt_callback(char *topic, byte *payload, unsigned int length);
+    void writePayload(String const &sTopic, String const &payloadStr) const;
+    void writePayload(ModbusSlaveDevice *modbusSlave, String const &sTopic, String const &payloadStr) const;
+    void setRelay(String const &sTopic, String const &payloadStr) const;
+    uint8_t writeRegister(ModbusSlaveDevice *modbusSlave, ModbusRegisterDescription const &regDesc, uint16_t value) const;
+    uint16_t getValue(ModbusRegisterDescription const &regDesc, String const &payloadStr) const;
+    void subscribe(String const& topic) const;
+
+    std::vector<ModbusSlaveDevice *> modbusSlaves;
+        
+    uint32_t lastReconnectTry{0};
+    uint32_t reconnectCounter{0};
+};
+
+#else
+
 #include <espMqttClientAsync.h>
 #include <Arduino.h>
 
@@ -58,7 +94,7 @@ private:
     std::atomic_bool dataReady{false};
 
     bool reconnectMqtt{false};
-    uint32_t lastReconnect{0};
+    uint32_t lastReconnectTry{0};
 
     espMqttClientAsync mqttClient;
 
@@ -66,3 +102,5 @@ private:
     Relay relay;
 #endif
 };
+
+#endif
