@@ -26,6 +26,7 @@ void onWiFiConnect(const WiFiEventStationModeGotIP &event)
     (void)event;
     led.yellowOff();
     Serial.println("connected to WiFi");
+    // this does not work, idk why.
     // MQTTClient.begin();
 }
 
@@ -50,7 +51,7 @@ String onRestartRequest()
 void wifi_setup()
 {
     WiFi.setAutoConnect(false);
-    WiFi.setAutoReconnect(true);
+    WiFi.setAutoReconnect(false);
     WiFi.mode(WIFI_STA);
     wifiConnectHandler = WiFi.onStationModeGotIP(onWiFiConnect);
     wifiDisconnectHandler = WiFi.onStationModeDisconnected(onWiFiDisconnect);
@@ -79,7 +80,7 @@ void wifi_setup()
     // Debug.showColors(true);
     // Debug.showTime(true);
     // Debug.setResetCmdEnabled(true);
-    
+
     MQTTClient.begin();
 
     /* Start AsyncWebServer */
@@ -108,16 +109,16 @@ void wifi_loop()
         WiFi.disconnect(true);
         WiFi.mode(WIFI_STA);
         WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
-        // WiFi.setHostname(WIFIHOSTNAME);
-        // WiFi.begin(WIFISSID, WIFIPASSWORD);
+        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+        WiFi.hostname(HOSTNAME);
 
         prevReconnectTryTime = currentMillis;
     }
 
     if (restart)
     {
-    	delay(5000);
-        ESP.reset();
+        delay(1000);
+        ESP.restart();
     }
 
     yield();

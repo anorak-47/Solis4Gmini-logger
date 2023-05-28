@@ -50,8 +50,8 @@ void MQTTClient::connect()
         if (client.connect(HOSTNAME, MQTT_USER, MQTT_PASSWORD, mqtt_status_control_topic, 2, true, "offline"))
         {
             subscribe();
-            
-            client.publish(mqtt_status_control_topic, "online", true);            
+
+            client.publish(mqtt_status_control_topic, "online", true);
             client.publish(mqtt_status_reconnect_topic, String(++reconnectCounter).c_str(), true);
         }
         else
@@ -65,12 +65,17 @@ void MQTTClient::connect()
 
 bool MQTTClient::isConnected() const
 {
-	return client.connected();
+    return client.connected();
 }
 
-void MQTTClient::sendPayload(String const &path, String const &payload)
+void MQTTClient::sendPayload(String const &topic, String const &payload) const
 {
-    client.publish(path.c_str(), payload.c_str());
+    client.publish(topic.c_str(), payload.c_str());
+}
+
+void MQTTClient::sendPayload(char const *topic, char const *payload) const
+{
+    client.publish(topic, 0, false, payload);
 }
 
 void MQTTClient::addModbusSlave(ModbusSlaveDevice &device)
@@ -139,7 +144,7 @@ void MQTTClient::writePayload(ModbusSlaveDevice *modbusSlave, String const &sTop
                           String resultTopic{modbusSlave->getMqttTopic() + modbusSlave->getName() + F(mqtt_modbus_set_result_holdingregister) +
                                              mqttTopic};
 
-                          client.publish(resultTopic.c_str(), payload.c_str());
+                          sendPayload(resultTopic, payload);
                       }
                   });
 }
@@ -174,7 +179,7 @@ void MQTTClient::setRelay(String const &sTopic, String const &payloadStr) const
 
     String stateTopic{F(mqtt_relay_state_topic)};
     String valueStr(value);
-    client.publish(stateTopic.c_str(), valueStr.c_str());
+    sendPayload(stateTopic, valueStr);
 #endif
 }
 
@@ -276,11 +281,17 @@ void MQTTClient::loop()
         }
     }
 
-    mqttClient.loop();
     handleMessages();
+
+    mqttClient.loop();
+    yield();
 }
 
-// Connect to WLAN subroutine
+bool MQTTClient::isConnected() const
+{
+    return mqttClient.connected();
+}
+
 void MQTTClient::connect()
 {
     Serial.println("connecting to MQTT...");
@@ -301,6 +312,9 @@ void MQTTClient::onMqttConnect(bool sessionPresent)
 
     subscribeAll();
     mqttClient.publish(mqtt_status_control_topic, 2, true, "online");
+
+    mqttClient.loop();
+    yield();
 }
 
 void MQTTClient::onMqttDisconnect(espMqttClientTypes::DisconnectReason reason)
@@ -399,9 +413,20 @@ void MQTTClient::onMqttPublish(uint16_t packetId)
     Serial.println(packetId);
 }
 
-void MQTTClient::sendPayload(String const &path, String const &payload)
+void MQTTClient::sendPayload(String const &topic, String const &payload)
 {
-    mqttClient.publish(path.c_str(), 0, false, payload.c_str());
+    mqttClient.publish(topic.c_str(), 0, false, payload.c_str());
+
+    mqttClient.loop();
+    yield();
+}
+
+void MQTTClient::sendPayload(char const *topic, char const *payload)
+{
+    mqttClient.publish(topic, 0, false, payload);
+
+    mqttClient.loop();
+    yield();
 }
 
 void MQTTClient::addModbusSlave(ModbusSlaveDevice &device)
@@ -413,7 +438,7 @@ void MQTTClient::sendStatus()
 {
     static char bufferSend[10];
     dtostrf(WiFi.RSSI(), 0, 0, bufferSend);
-    mqttClient.publish(mqtt_status_rssi_topic, 0, false, bufferSend);
+    sendPayload(mqtt_status_rssi_topic, bufferSend);
 }
 
 uint8_t decToBcd(uint8_t val)
@@ -469,7 +494,7 @@ void MQTTClient::writePayload(ModbusSlaveDevice *modbusSlave, String const &sTop
 
                           String resultTopic{modbusSlave->getMqttTopic() + modbusSlave->getName() + F(mqtt_modbus_set_result_holdingregister) +
                                              mqttTopic};
-                          mqttClient.publish(resultTopic.c_str(), 0, false, payload.c_str());
+                          sendPayload(resultTopic, payload);
                       }
                   });
 }
@@ -509,7 +534,7 @@ void MQTTClient::setRelay(String const &sTopic, String const &payloadStr)
 
     String stateTopic{F(mqtt_relay_state_topic)};
     String valueStr(value);
-    mqttClient.publish(stateTopic.c_str(), 0, false, valueStr.c_str());
+    sendPayload(stateTopic, valueStr);
 #endif
 }
 
@@ -528,12 +553,18 @@ void MQTTClient::subscribeAll()
                   {
                       String topic{modbusSlave->getMqttTopic() + modbusSlave->getName() + F(mqtt_modbus_set_holdingregister) + F("#")};
                       subscribe(topic);
+
+                      mqttClient.loop();
+                      yield();
                   });
 
 #ifdef DEVICE_RELAY
     auto relayTopic{String(F(mqtt_relay_set_topic))};
     subscribe(relayTopic, 2);
 #endif
+
+    mqttClient.loop();
+    yield();
 }
 
 #endif

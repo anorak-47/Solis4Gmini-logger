@@ -14,7 +14,8 @@ public:
     bool isConnected() const;
     
     void sendStatus();
-    void sendPayload(String const &path, String const &payload);
+    void sendPayload(String const &topic, String const &payload) const;
+    void sendPayload(char const *topic, char const *payload) const;
 
     void addModbusSlave(ModbusSlaveDevice &device);
     void subscribe() const;
@@ -38,7 +39,7 @@ private:
 
 #else
 
-#include <espMqttClientAsync.h>
+#include <espMqttClient.h>
 #include <Arduino.h>
 
 class MQTTClient
@@ -58,9 +59,12 @@ public:
 
     void begin();
     void loop();
+    
+    bool isConnected() const;
 
     void sendStatus();
-    void sendPayload(String const &path, String const &payload);
+    void sendPayload(String const &topic, String const &payload);
+    void sendPayload(char const *topic, char const *payload);
 
     void addModbusSlave(ModbusSlaveDevice &device);
 
@@ -96,7 +100,7 @@ private:
     bool reconnectMqtt{false};
     uint32_t lastReconnectTry{0};
 
-    espMqttClientAsync mqttClient;
+    espMqttClient mqttClient;
 
 #ifdef DEVICE_RELAY
     Relay relay;
